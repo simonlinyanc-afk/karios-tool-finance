@@ -1,0 +1,8 @@
+{
+  "name": "yellow-bird-finance",
+  "version": "1.0.0",
+  "description": "Reimbursement management tool with OCR",
+  "scripts": {
+    "deploy": "vercel --prod"
+  }
+}
