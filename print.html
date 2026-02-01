@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>报销单打印</title>
+    <style>
+        /* 全局样式 */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        /* 页面设置 */
+        @page {
+            size: A4 landscape;
+            margin: 10mm;
+        }
+
+        body {
+            font-family: 'Noto Sans SC', 'Microsoft YaHei', sans-serif;
+            font-size: 9px;
+            line-height: 1.4;
+            color: #000;
+            background: #fff;
+        }
+
+        /* 容器 */
+        .container {
+            width: 277mm;
+            /* A4 landscape - 20mm margins */
+            margin: 0 auto;
+            padding: 5mm;
+        }
+
+        /* 顶部提示（仅屏幕显示） */
+        .print-notice {
+            background: #fef3c7;
+            border: 2px solid #f59e0b;
+            padding: 12px;
+            margin-bottom: 16px;
+            border-radius: 4px;
+            text-align: center;
+        }
+
+        .print-notice h2 {
+            font-size: 16px;
+            margin-bottom: 8px;
+            color: #92400e;
+        }
+
+        .print-notice p {
+            font-size: 12px;
+            color: #78350f;
+        }
+
+        /* 报销单头部 */
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+
+        .header img {
+            height: 32px;
+        }
+
+        .header h1 {
+            flex: 1;
+            text-align: center;
+            font-size: 18px;
+            font-weight: bold;
+        }
+
+        /* 信息网格 */
+        .info-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 8px;
+            margin-bottom: 6px;
+            font-size: 10px;
+        }
+
+        .payment-info {
+            margin-bottom: 6px;
+            font-size: 10px;
+        }
+
+        /* 表格 */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 8px;
+        }
+
+        th,
+        td {
+            border: 1px solid #999;
+            padding: 4px;
+            text-align: left;
+            vertical-align: middle;
+        }
+
+        th {
+            background: #f0f0f0;
+            font-weight: bold;
+        }
+
+        td img {
+            width: 64px;
+            height: 64px;
+            object-fit: contain;
+            display: block;
+            margin: 0 auto;
+        }
+
+        tfoot td {
+            background: #f9f9f9;
+            font-weight: bold;
+            text-align: right;
+        }
+
+        /* 备注 */
+        .notes {
+            margin-top: 16px;
+            font-size: 11px;
+        }
+
+        .notes p:last-child {
+            min-height: 30px;
+            border-bottom: 1px solid #ccc;
+        }
+
+        /* 签字 */
+        .signatures {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 24px;
+            font-size: 11px;
+        }
+
+        .signatures span {
+            display: inline-block;
+            min-width: 100px;
+            border-bottom: 1px solid #ccc;
+        }
+
+        /* 打印时隐藏提示 */
+        @media print {
+            .print-notice {
+                display: none;
+            }
+
+            .container {
+                width: 100%;
+                padding: 0;
+            }
+
+            @page {
+                margin: 10mm;
+            }
+        }
+
+        /* 加载状态 */
+        .loading {
+            text-align: center;
+            padding: 40px;
+            font-size: 14px;
+            color: #666;
+        }
+
+        .error {
+            background: #fee;
+            border: 2px solid #f00;
+            padding: 20px;
+            margin: 20px;
+            border-radius: 4px;
+            text-align: center;
+        }
+    </style>
+</head>
+
+<body>
+    <!-- 加载提示 -->
+    <div id="loading" class="loading">正在加载数据...</div>
+
+    <!-- 错误提示 -->
+    <div id="error" class="error" style="display: none;">
+        <h2>加载失败</h2>
+        <p id="error-message"></p>
+    </div>
+
+    <!-- 打印内容 -->
+    <div id="content" style="display: none;">
+        <!-- 屏幕提示 -->
+        <div class="print-notice">
+            <h2>📄 打印预览</h2>
+            <p>请使用 <strong>Ctrl+P (Windows)</strong> 或 <strong>Cmd+P (Mac)</strong> 打印</p>
+            <p>在打印对话框中选择 <strong>"另存为PDF"</strong> 即可保存</p>
+        </div>
+
+        <!-- 报销单内容 -->
+        <div class="container">
+            <div class="header">
+                <img src="logo_text.png" alt="Kairos Logo" />
+                <h1>报销单</h1>
+                <img src="logo_graph.png" alt="Kairos Graph" />
+            </div>
+
+            <div class="info-grid">
+                <p><strong>报销人:</strong> <span id="reimburser"></span></p>
+                <p><strong>所属项目:</strong> <span id="project"></span></p>
+                <p><strong>报销日期:</strong> <span id="date"></span></p>
+            </div>
+
+            <div class="payment-info">
+                <p><strong>收款信息:</strong> <span id="payment-info"></span></p>
+            </div>
+
+            <table>
+                <thead id="table-header">
+                    <!-- 动态生成 -->
+                </thead>
+                <tbody id="table-body">
+                    <!-- 动态生成 -->
+                </tbody>
+                <tfoot id="table-footer">
+                    <!-- 动态生成 -->
+                </tfoot>
+            </table>
+
+            <div class="notes">
+                <p><strong>备注:</strong></p>
+                <p></p>
+            </div>
+
+            <div class="signatures">
+                <p><strong>报销人签字:</strong> <span></span></p>
+                <p><strong>审核人签字:</strong> <span></span></p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 从 localStorage 读取数据
+        function loadPrintData() {
+            try {
+                const dataStr = localStorage.getItem('printData');
+                if (!dataStr) {
+                    throw new Error('未找到打印数据。请从主页面重新导出。');
+                }
+
+                const data = JSON.parse(dataStr);
+
+                // 验证数据
+                if (!data.items || !data.reimbursementInfo || !data.columns) {
+                    throw new Error('数据格式不正确');
+                }
+
+                return data;
+            } catch (error) {
+                console.error('加载数据失败:', error);
+                throw error;
+            }
+        }
+
+        // 渲染页面
+        function renderPage(data) {
+            const { items, reimbursementInfo, columns } = data;
+
+            // 填充基本信息
+            document.getElementById('reimburser').textContent = reimbursementInfo.reimburser || '未填写';
+            document.getElementById('project').textContent = reimbursementInfo.project || '未填写';
+            document.getElementById('date').textContent = reimbursementInfo.reimbursementDate || new Date().toLocaleDateString('zh-CN');
+            document.getElementById('payment-info').textContent = reimbursementInfo.paymentInfo || '未填写';
+
+            // 渲染表头
+            const thead = document.getElementById('table-header');
+            const headerRow = document.createElement('tr');
+            columns.forEach(col => {
+                const th = document.createElement('th');
+                th.textContent = col.label;
+                headerRow.appendChild(th);
+            });
+            thead.appendChild(headerRow);
+
+            // 渲染表体
+            const tbody = document.getElementById('table-body');
+            items.forEach(item => {
+                const row = document.createElement('tr');
+
+                columns.forEach(col => {
+                    const td = document.createElement('td');
+
+                    // 图片列
+                    if (col.id === 'preview' || col.id === 'orderImage' || col.id === 'paymentProof') {
+                        const src = item[col.id] || (col.id === 'preview' && item.previewUrl);
+                        if (src) {
+                            const img = document.createElement('img');
+                            img.src = src;
+                            img.alt = col.label;
+                            td.appendChild(img);
+                        }
+                    }
+                    // 金额列
+                    else if (['amount', 'subtotal', 'totalWithTax', 'tax', 'unitPrice'].includes(col.id)) {
+                        td.textContent = '¥' + Number(item[col.id] || 0).toFixed(2);
+                    }
+                    // 普通列
+                    else {
+                        td.textContent = item[col.id] || '';
+                    }
+
+                    row.appendChild(td);
+                });
+
+                tbody.appendChild(row);
+            });
+
+            // 计算总计
+            const totalAmount = items.reduce((sum, item) => sum + Number(item.amount || 0), 0);
+
+            // 渲染表尾
+            const tfoot = document.getElementById('table-footer');
+            const footerRow = document.createElement('tr');
+            const totalLabelCell = document.createElement('td');
+            totalLabelCell.colSpan = columns.length - 1;
+            totalLabelCell.textContent = '总计:';
+            footerRow.appendChild(totalLabelCell);
+
+            const totalValueCell = document.createElement('td');
+            totalValueCell.textContent = '¥' + totalAmount.toFixed(2);
+            footerRow.appendChild(totalValueCell);
+
+            tfoot.appendChild(footerRow);
+        }
+
+        // 初始化
+        window.addEventListener('load', function () {
+            try {
+                // 读取数据
+                const data = loadPrintData();
+
+                // 渲染页面
+                renderPage(data);
+
+                // 隐藏加载提示
+                document.getElementById('loading').style.display = 'none';
+
+                // 显示内容
+                document.getElementById('content').style.display = 'block';
+
+                // 延迟触发打印（确保图片加载）
+                setTimeout(function () {
+                    window.print();
+                }, 800);
+
+                // 清理 localStorage（可选）
+                // localStorage.removeItem('printData');
+
+            } catch (error) {
+                // 显示错误
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('error').style.display = 'block';
+                document.getElementById('error-message').textContent = error.message;
+            }
+        });
+    </script>
+</body>
+
+</html>

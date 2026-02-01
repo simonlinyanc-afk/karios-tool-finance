@@ -922,562 +922,608 @@
         }
       };
 
-
-
-
-const addNewRow = () => {
-const newItem = {
-id: Date.now(),
-file: null,
-isPDF: false,
-previewUrl: null,
-date: new Date().toISOString().split('T')[0],
-amount: 0,
-tax: 0,
-category: "其他",
-description: "",
-itemName: "",
-specification: "",
-unit: "",
-quantity: 0,
-unitPrice: 0,
-taxRate: "",
-subtotal: 0,
-totalWithTax: 0,
-invoiceNumber: "",
-buyerName: "",
-sellerName: "",
-attachments: [],
-remarks: "",
-reimburser: reimbursementInfo.reimburser || "",
-project: reimbursementInfo.project || ""
-};
-setItems([...items, newItem]);
-};
-
-// Use amount for total calculation
-const totalAmount = items.reduce((sum, item) => sum + Number(item.amount || 0), 0);
-
-// Reusable PDF Content Component
-const PDFContent = ({ items, reimbursementInfo, columns }) => {
-// Use 'amount' for total calculation to match visible column
-const pdfTotalAmount = items.reduce((sum, item) => sum + Number(item.amount || 0), 0);
-// Filter columns based on visibility toggle (respect the 'visible' property)
-const visibleColumns = columns.filter(c => c.visible && c.id !== 'actions');
-
-// Use 275mm width to ensure it fits within A4 Landscape (297mm) minus margins
-return (
-<div id="pdf-preview-content" className="p-4 bg-white text-black w-[275mm] min-h-[210mm] mx-auto text-[9px] relative">
-  <div className="flex items-center justify-between mb-3">
-    <img src="logo_text.png" alt="Kairos Studio Logo" className="h-8" />
-    <h1 className="text-lg font-bold flex-1 text-center">报销单</h1>
-    <img src="logo_graph.png" alt="Kairos Graph Logo" className="h-8" />
-  </div>
-
-  <div className="mb-2 grid grid-cols-3 gap-2 text-[10px]">
-    <p><strong>报销人:</strong> {reimbursementInfo.reimburser || '未填写'}</p>
-    <p><strong>所属项目:</strong> {reimbursementInfo.project || '未填写'}</p>
-    <p><strong>报销日期:</strong> {reimbursementInfo.reimbursementDate || new Date().toLocaleDateString('zh-CN')}</p>
-  </div>
-  <div className="mb-2 text-[10px]">
-    <p><strong>收款信息:</strong> {reimbursementInfo.paymentInfo || '未填写'}</p>
-  </div>
-
-  <table className="w-full border-collapse mb-2 table-auto">
-    <thead>
-      <tr>
-        {visibleColumns.map(col => (
-        <th key={col.id} className="border border-gray-400 p-1 text-left bg-gray-100">{col.label}</th>
-        ))}
-      </tr>
-    </thead>
-    <tbody>
-      {items.map(item => (
-      <tr key={item.id}>
-        {visibleColumns.map(col => (
-        <td key={col.id} className="border border-gray-400 p-1">
-          {col.id === 'preview' || col.id === 'orderImage' || col.id === 'paymentProof' ? (
-          item[col.id] || (col.id === 'preview' && item.previewUrl) ? (
-          <img src={item[col.id] || item.previewUrl} className="w-16 h-16 object-contain mx-auto" alt={col.label}
-            crossOrigin="anonymous" />
-          ) : ''
-          ) : ['amount', 'subtotal', 'totalWithTax', 'tax', 'unitPrice'].includes(col.id)
-          ? `¥${Number(item[col.id] || 0).toFixed(2)}`
-          : (item[col.id] || '')}
-        </td>
-        ))}
-      </tr>
-      ))}
-    </tbody>
-    <tfoot>
-      <tr>
-        <td colSpan={visibleColumns.length - 1} className="border border-gray-400 p-1 text-right font-bold bg-gray-50">
-          总计:</td>
-        <td className="border border-gray-400 p-1 text-right font-bold bg-gray-50">¥{pdfTotalAmount.toFixed(2)}</td>
-      </tr>
-    </tfoot>
-  </table>
-
-  <div className="text-xs mt-6">
-    <p><strong>备注:</strong></p>
-    <p className="min-h-[30px] border-b border-gray-300"></p>
-  </div>
-
-  <div className="flex justify-between mt-8 text-xs">
-    <p><strong>报销人签字:</strong> <span className="min-w-[100px] inline-block border-b border-gray-300"></span></p>
-    <p><strong>审核人签字:</strong> <span className="min-w-[100px] inline-block border-b border-gray-300"></span></p>
-  </div>
-</div>
-);
-};
-
-// Main App return
-return (
-<div className="min-h-screen bg-gradient-to-br from-[#0a0a0a] via-[#1a1a1a] to-[#0a0a0a]">
-
-  {/* OCR Confirmation Dialog */}
-  {ocrConfirmation.show && (
-  <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-6" onClick={()=>
-    setOcrConfirmation({ show: false, itemId: null, file: null, imageUrl: null })}>
-    <div className="bg-[#1a1a1a] rounded-xl p-8 max-w-md w-full border border-[#2a2a2a]" onClick={(e)=>
-      e.stopPropagation()}>
-      <h3 className="text-xl font-bold mb-2 font-cn text-center">是否使用自动识别？</h3>
-      <p className="text-gray-500 text-xs text-center mb-6">Powered by Qwen</p>
-      {ocrConfirmation.imageUrl && (
-      <div className="mb-6 flex justify-center">
-        <img src={ocrConfirmation.imageUrl} alt="Preview" className="max-h-48 rounded border border-[#2a2a2a]" />
-      </div>
-      )}
-      <div className="flex gap-4">
-        <button onClick={async ()=> {
-          const { itemId, file, imageUrl } = ocrConfirmation;
-          setOcrConfirmation({ show: false, itemId: null, file: null, imageUrl: null });
-          updateItem(itemId, 'previewUrl', imageUrl);
-          updateItem(itemId, 'file', file);
-          setIsProcessing(true);
-          try {
-          const reader = new FileReader();
-          const imageBase64 = await new Promise((resolve, reject) => {
-          reader.onload = () => resolve(reader.result);
-          reader.onerror = reject;
-          reader.readAsDataURL(file);
-          });
-          const response = await fetch('/api/ocr', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ image: imageBase64 })
-          });
-          if (!response.ok) throw new Error('OCR failed');
-          const data = await response.json();
-
-          if (data) {
-          Object.entries(data).forEach(([key, value]) => {
-          if (value !== null && value !== undefined && value !== '') {
-          updateItem(itemId, key, value);
+      // NEW: Browser-native print export (uses print.html)
+      const exportPDF_Print = () => {
+        try {
+          console.log('🖨️ Preparing print export...');
+          
+          // Prepare export data
+          const exportData = {
+            items: items,
+            reimbursementInfo: reimbursementInfo,
+            columns: columns.filter(c => c.visible && c.id !== 'actions'),
+            timestamp: Date.now()
+          };
+          
+          // Store in localStorage
+          localStorage.setItem('printData', JSON.stringify(exportData));
+          console.log('✅ Data stored in localStorage');
+          
+          // Open print window
+          const printWindow = window.open('print.html', '_blank', 'width=1200,height=800');
+          
+          if (!printWindow) {
+            alert('无法打开打印窗口，请检查浏览器弹窗设置');
+            return;
           }
-          });
-          }
-          } catch (error) {
-          console.error('OCR Error:', error);
-          alert('OCR识别失败：' + error.message);
-          } finally {
-          setIsProcessing(false);
-          }
-          }} className="flex-1 bg-yellow-500 hover:bg-yellow-600 text-black py-3 rounded-lg font-cn font-semibold
-          transition">是</button>
-        <button onClick={()=> {
-          const { itemId, imageUrl, file } = ocrConfirmation;
-          updateItem(itemId, 'previewUrl', imageUrl);
-          updateItem(itemId, 'file', file);
-          setOcrConfirmation({ show: false, itemId: null, file: null, imageUrl: null });
-          }} className="flex-1 bg-[#2a2a2a] hover:bg-[#3a3a3a] text-gray-300 py-3 rounded-lg font-cn
-          transition">否</button>
-      </div>
-    </div>
-  </div>
-  )}
+          
+          console.log('✅ Print window opened');
+          
+        } catch (error) {
+          console.error('❌ Print export failed:', error);
+          alert('导出失败: ' + error.message);
+        }
+      };
 
-  {/* Tutorial Welcome Card */}
-  {showTutorial && (
-  <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-    <div className="card-modern rounded-2xl p-8 max-w-2xl w-full relative animate-fade-in">
-      <button onClick={closeTutorial} className="absolute top-4 right-4 text-gray-400 hover:text-white transition">
-        <X size={24} />
-      </button>
 
-      <div className="text-center mb-6">
-        <div className="w-40 h-15 items-center justify-center mx-auto mb-4 overflow-hidden">
-          <img src="logo.png" alt="Kairos Studio" className="w-full h-full object-contain" />
-        </div>
-        <h2 className="text-2xl font-bold mb-2 font-cn">欢迎使用 Kairos Studio 报销单整理工具</h2>
-        <p className="text-gray-400 text-sm font-en">QUICK START GUIDE</p>
-      </div>
 
-      <div className="space-y-4 mb-6">
-        <div className="flex gap-4 items-start">
-          <div className="w-8 h-8 bg-yellow-400/10 rounded-full flex items-center justify-center flex-shrink-0 mt-1">
-            <span className="text-yellow-400 font-bold">1</span>
-          </div>
-          <div>
-            <h3 className="font-semibold mb-1 font-cn">填写报销信息</h3>
-            <p className="text-sm text-gray-400">输入报销人、所属项目、报销日期和收款信息</p>
-          </div>
-        </div>
 
-        <div className="flex gap-4 items-start">
-          <div className="w-8 h-8 bg-yellow-400/10 rounded-full flex items-center justify-center flex-shrink-0 mt-1">
-            <span className="text-yellow-400 font-bold">2</span>
-          </div>
-          <div>
-            <h3 className="font-semibold mb-1 font-cn">上传发票</h3>
-            <p className="text-sm text-gray-400">支持 JPG、PNG、PDF 格式，OCR 自动识别发票信息</p>
-          </div>
-        </div>
 
-        <div className="flex gap-4 items-start">
-          <div className="w-8 h-8 bg-yellow-400/10 rounded-full flex items-center justify-center flex-shrink-0 mt-1">
-            <span className="text-yellow-400 font-bold">3</span>
-          </div>
-          <div>
-            <h3 className="font-semibold mb-1 font-cn">补充图片</h3>
-            <p className="text-sm text-gray-400">拖拽上传订单图和支付凭证（可选）</p>
-          </div>
-        </div>
+      const addNewRow = () => {
+        const newItem = {
+          id: Date.now(),
+          file: null,
+          isPDF: false,
+          previewUrl: null,
+          date: new Date().toISOString().split('T')[0],
+          amount: 0,
+          tax: 0,
+          category: "其他",
+          description: "",
+          itemName: "",
+          specification: "",
+          unit: "",
+          quantity: 0,
+          unitPrice: 0,
+          taxRate: "",
+          subtotal: 0,
+          totalWithTax: 0,
+          invoiceNumber: "",
+          buyerName: "",
+          sellerName: "",
+          attachments: [],
+          remarks: "",
+          reimburser: reimbursementInfo.reimburser || "",
+          project: reimbursementInfo.project || ""
+        };
+        setItems([...items, newItem]);
+      };
 
-        <div className="flex gap-4 items-start">
-          <div className="w-8 h-8 bg-yellow-400/10 rounded-full flex items-center justify-center flex-shrink-0 mt-1">
-            <span className="text-yellow-400 font-bold">4</span>
-          </div>
-          <div>
-            <h3 className="font-semibold mb-1 font-cn">导出报销单</h3>
-            <p className="text-sm text-gray-400">一键导出 Excel 或 PDF 格式，图片自动嵌入</p>
-          </div>
-        </div>
-      </div>
+      // Use amount for total calculation
+      const totalAmount = items.reduce((sum, item) => sum + Number(item.amount || 0), 0);
 
-      <button onClick={closeTutorial} className="w-full btn-primary py-3 rounded-lg font-semibold font-cn">
-        开始使用
-      </button>
-    </div>
-  </div>
-  )}
-  {/* Hidden PDF Content - Always in DOM for export */}
-  <div style={{ position: 'absolute' , left: '-9999px' , top: '0' }}>
-    <PDFContent items={pdfItems || items} reimbursementInfo={reimbursementInfo} columns={columns} />
-  </div>
+      // Reusable PDF Content Component
+      const PDFContent = ({ items, reimbursementInfo, columns }) => {
+        // Use 'amount' for total calculation to match visible column
+        const pdfTotalAmount = items.reduce((sum, item) => sum + Number(item.amount || 0), 0);
+        // Filter columns based on visibility toggle (respect the 'visible' property)
+        const visibleColumns = columns.filter(c => c.visible && c.id !== 'actions');
 
-  {/* Visible UI */}
-  <header className="border-b border-[#2a2a2a] px-8 py-6">
-    <div className="flex items-center justify-between">
-      <div className="flex items-center gap-4">
-        <img src="logo.png" alt="Logo" className="h-10" />
-      </div>
-      <div className="flex items-center gap-2 text-xs text-gray-500 font-en">
-        <div className="w-2 h-2 rounded-full bg-green-500"></div>
-        <span>LOCAL / OFFLINE</span>
-      </div>
-    </div>
-  </header>
+        // Use 275mm width to ensure it fits within A4 Landscape (297mm) minus margins
+        return (
+          <div id="pdf-preview-content" className="p-4 bg-white text-black w-[275mm] min-h-[210mm] mx-auto text-[9px] relative">
+            <div className="flex items-center justify-between mb-3">
+              <img src="logo_text.png" alt="Kairos Studio Logo" className="h-8" />
+              <h1 className="text-lg font-bold flex-1 text-center">报销单</h1>
+              <img src="logo_graph.png" alt="Kairos Graph Logo" className="h-8" />
+            </div>
 
-  {/* Main Content */}
-  <main className="max-w-7xl mx-auto p-6 space-y-6">
+            <div className="mb-2 grid grid-cols-3 gap-2 text-[10px]">
+              <p><strong>报销人:</strong> {reimbursementInfo.reimburser || '未填写'}</p>
+              <p><strong>所属项目:</strong> {reimbursementInfo.project || '未填写'}</p>
+              <p><strong>报销日期:</strong> {reimbursementInfo.reimbursementDate || new Date().toLocaleDateString('zh-CN')}</p>
+            </div>
+            <div className="mb-2 text-[10px]">
+              <p><strong>收款信息:</strong> {reimbursementInfo.paymentInfo || '未填写'}</p>
+            </div>
 
-    {/* Reimbursement Info & Upload */}
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-
-      {/* Upload Zone */}
-      <div className={`upload-zone rounded-xl p-8 flex flex-col items-center justify-center text-center cursor-pointer
-        ${isDragging ? 'drag-active' : '' }`} onDragOver={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop}
-        onClick={()=> document.getElementById('fileInput').click()}
-        >
-        <input type="file" id="fileInput" multiple className="hidden" onChange={(e)=> handleFiles(e.target.files)} />
-        <div className="w-14 h-14 bg-[#1a1a1a] rounded-full flex items-center justify-center mb-4">
-          {isProcessing ?
-          <RefreshCw className="animate-spin text-yellow-400" size={28} /> :
-          <Upload className="text-yellow-400" size={28} />}
-        </div>
-        <p className="text-sm font-semibold mb-2 font-cn">上传发票</p>
-        <p className="text-xs text-gray-400 mb-1 font-cn">自动识别文字内容填充</p>
-        <p className="text-xs text-gray-500 font-en">支持格式：JPG、PNG、PDF</p>
-      </div>
-
-      {/* Reimbursement Info */}
-      <div className="lg:col-span-2 card-modern rounded-xl p-6">
-        <div className="flex items-center gap-2 mb-4 pb-3 border-b border-[#2a2a2a]">
-          <Settings size={18} className="text-yellow-400" />
-          <span className="font-semibold text-sm font-cn">报销单信息</span>
-          <span className="text-xs text-gray-500 font-en">REIMBURSEMENT INFO</span>
-        </div>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <div>
-            <label className="text-xs text-gray-500 mb-1.5 block font-cn">报销人</label>
-            <input type="text" className="w-full px-3 py-2.5 input-modern rounded-lg text-sm" placeholder="例：黄鸟"
-              value={reimbursementInfo.reimburser} onChange={e=> setReimbursementInfo({ ...reimbursementInfo,
-            reimburser: e.target.value })}
-            />
-          </div>
-          <div>
-            <label className="text-xs text-gray-500 mb-1.5 block font-cn">所属项目</label>
-            <input type="text" className="w-full px-3 py-2.5 input-modern rounded-lg text-sm" placeholder="例：11-12 月报销"
-              value={reimbursementInfo.project} onChange={e=> setReimbursementInfo({ ...reimbursementInfo, project:
-            e.target.value })}
-            />
-          </div>
-          <div>
-            <label className="text-xs text-gray-500 mb-1.5 block font-cn">报销日期</label>
-            <input type="date" className="w-full px-3 py-2.5 input-modern rounded-lg text-sm"
-              value={reimbursementInfo.reimbursementDate} onChange={e=> setReimbursementInfo({ ...reimbursementInfo,
-            reimbursementDate: e.target.value })}
-            />
-          </div>
-        </div>
-        <div className="mt-4">
-          <label className="text-xs text-gray-500 mb-1.5 block font-cn">收款信息</label>
-          <input type="text" className="w-full px-3 py-2.5 input-modern rounded-lg text-sm" placeholder="请输入银行卡号或收款账户信息"
-            value={reimbursementInfo.paymentInfo} onChange={e=> setReimbursementInfo({ ...reimbursementInfo,
-          paymentInfo: e.target.value })}
-          />
-        </div>
-      </div>
-    </div>
-
-    {/* Processing Queue */}
-    {processingQueue.length > 0 && (
-    <div className="card-modern rounded-xl p-5">
-      <h3 className="text-sm font-semibold mb-4 font-cn">处理进度</h3>
-      <div className="space-y-3">
-        {processingQueue.map(item => (
-        <div key={item.id} className="space-y-1.5">
-          <div className="flex justify-between text-xs">
-            <span className="text-gray-400 font-en">{item.name}</span>
-            <span className={`font-semibold ${item.status==='completed' ? 'text-green-400' : item.status==='failed'
-              ? 'text-red-400' : 'text-yellow-400' } font-cn`}>
-              {item.status === 'waiting' && '等待中'}
-              {item.status === 'processing' && '处理中...'}
-              {item.status === 'completed' && '完成'}
-              {item.status === 'failed' && '失败'}
-            </span>
-          </div>
-          <div className="progress-bar h-1.5">
-            <div className={`progress-fill ${item.status==='failed' ? 'bg-red-500' : '' }`} style={{ width:
-              `${item.progress}%` }} />
-          </div>
-        </div>
-        ))}
-      </div>
-    </div>
-    )}
-
-    {/* Items Table */}
-    {items.length > 0 && (
-    <div className="card-modern rounded-xl overflow-hidden">
-      <div className="overflow-x-auto">
-        <table className="table-modern">
-          <thead>
-            <tr>
-              {columns.filter(c => c.visible).map(col => (
-              <th key={col.id} className="font-cn whitespace-nowrap">
-                {col.label}
-              </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {items.map(item => (
-            <React.Fragment key={item.id}>
-              <tr>
-                {columns.filter(c => c.visible).map(col => (
-                <td key={col.id} className={col.width || '' }>
-                  {/* Render Content Based on Column ID */}
-                  {col.id === 'preview' && (
-                  !item.previewUrl ? (
-                  <label
-                    className="w-12 h-12 bg-[#1a1a1a] rounded flex items-center justify-center cursor-pointer hover:bg-[#2a2a2a] border border-dashed border-gray-700"
-                    onDragOver={(e)=> { e.preventDefault(); e.stopPropagation(); }}
-                    onDrop={async (e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    let file = e.dataTransfer.files[0];
-                    if (file) {
-                    if (file.type === 'application/pdf') {
-                    file = await convertPDFToImage(file);
-                    }
-                    if (file && file.type.startsWith('image/')) {
-                    const url = URL.createObjectURL(file);
-                    setOcrConfirmation({ show: true, itemId: item.id, file: file, imageUrl: url });
-                    }
-                    }
-                    }}
-                    >
-                    <Upload size={16} className="text-gray-500" />
-                    <input type="file" className="hidden" accept="image/*,application/pdf" onChange={async (e)=> {
-                    let file = e.target.files[0];
-                    if (file) {
-                    if (file.type === 'application/pdf') {
-                    file = await convertPDFToImage(file);
-                    }
-                    if (file && file.type.startsWith('image/')) {
-                    const url = URL.createObjectURL(file);
-                    setOcrConfirmation({ show: true, itemId: item.id, file: file, imageUrl: url });
-                    }
-                    }
-                    }} />
-                  </label>
-                  ) : (
-                  <div className="relative group w-12 h-12">
-                    <img src={item.previewUrl}
-                      className="w-12 h-12 object-cover rounded cursor-pointer border border-gray-700" onClick={()=>
-                    setPdfPreviewUrl(item.previewUrl)} alt="invoice" />
-                    <button onClick={(e)=> { e.stopPropagation(); updateItem(item.id, 'previewUrl', null);
-                      updateItem(item.id, 'file', null); }}
-                      className="absolute -top-1 -right-1 bg-black/80 text-white rounded-full p-0.5 opacity-0
-                      group-hover:opacity-100 transition"
-                      >
-                      <X size={10} />
-                    </button>
-                  </div>
-                  )
-                  )}
-
-                  {col.id === 'orderImage' && (
-                  !item.orderImage ? (
-                  <label
-                    className="w-12 h-12 bg-[#1a1a1a] rounded flex items-center justify-center cursor-pointer hover:bg-[#2a2a2a] border border-dashed border-gray-700"
-                    onDragOver={(e)=> { e.preventDefault(); e.stopPropagation(); }}
-                    onDrop={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    const file = e.dataTransfer.files[0];
-                    if (file && file.type.startsWith('image/')) {
-                    handleImageUpload(item.id, 'orderImage', file);
-                    }
-                    }}
-                    >
-                    <Upload size={16} className="text-gray-500" />
-                    <input type="file" className="hidden" accept="image/*" onChange={(e)=> handleImageUpload(item.id,
-                    'orderImage', e.target.files[0])} />
-                  </label>
-                  ) : (
-                  <div className="relative group w-12 h-12">
-                    <img src={item.orderImage}
-                      className="w-12 h-12 object-cover rounded cursor-pointer border border-gray-700" onClick={()=>
-                    setPdfPreviewUrl(item.orderImage)} alt="order" />
-                    <button onClick={(e)=> { e.stopPropagation(); updateItem(item.id, 'orderImage', null); }}
-                      className="absolute -top-1 -right-1 bg-black/80 text-white rounded-full p-0.5 opacity-0
-                      group-hover:opacity-100 transition"
-                      >
-                      <X size={10} />
-                    </button>
-                  </div>
-                  )
-                  )}
-
-                  {col.id === 'paymentProof' && (
-                  !item.paymentProof ? (
-                  <label
-                    className="w-12 h-12 bg-[#1a1a1a] rounded flex items-center justify-center cursor-pointer hover:bg-[#2a2a2a] border border-dashed border-gray-700"
-                    onDragOver={(e)=> { e.preventDefault(); e.stopPropagation(); }}
-                    onDrop={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    const file = e.dataTransfer.files[0];
-                    if (file && file.type.startsWith('image/')) {
-                    handleImageUpload(item.id, 'paymentProof', file);
-                    }
-                    }}
-                    >
-                    <Upload size={16} className="text-gray-500" />
-                    <input type="file" className="hidden" accept="image/*" onChange={(e)=> handleImageUpload(item.id,
-                    'paymentProof', e.target.files[0])} />
-                  </label>
-                  ) : (
-                  <div className="relative group w-12 h-12">
-                    <img src={item.paymentProof}
-                      className="w-12 h-12 object-cover rounded cursor-pointer border border-gray-700" onClick={()=>
-                    setPdfPreviewUrl(item.paymentProof)} alt="payment" />
-                    <button onClick={(e)=> { e.stopPropagation(); updateItem(item.id, 'paymentProof', null); }}
-                      className="absolute -top-1 -right-1 bg-black/80 text-white rounded-full p-0.5 opacity-0
-                      group-hover:opacity-100 transition"
-                      >
-                      <X size={10} />
-                    </button>
-                  </div>
-                  )
-                  )}
-
-                  {col.id === 'date' && (
-                  <input type="date" className="input-modern px-3 py-1.5 rounded text-sm w-full" value={item.date}
-                    onChange={e=> updateItem(item.id, 'date', e.target.value)}
-                  />
-                  )}
-
-                  {['category', 'description', 'itemName', 'specification', 'unit', 'taxRate', 'invoiceNumber',
-                  'buyerName', 'sellerName', 'remarks'].includes(col.id) && (
-                  <input type="text" className="input-modern px-3 py-1.5 rounded text-sm w-full" value={item[col.id]}
-                    onChange={e=> updateItem(item.id, col.id, e.target.value)}
-                  />
-                  )}
-
-                  {['amount', 'quantity', 'unitPrice', 'subtotal', 'totalWithTax', 'tax'].includes(col.id) && (
-                  <input type="number" step="0.01"
-                    className="input-modern px-3 py-1.5 rounded text-sm w-full text-right" value={item[col.id]}
-                    onChange={e=> updateItem(item.id, col.id, parseFloat(e.target.value) || 0)}
-                  />
-                  )}
-
-                  {col.id === 'actions' && (
-                  <div className="flex gap-2">
-                    <button onClick={()=> toggleRow(item.id)}
-                      className="p-1.5 hover:bg-[#2a2a2a] rounded"
-                      title="展开详情"
-                      >
-                      {expandedRows.has(item.id) ?
-                      <ChevronUp size={16} /> :
-                      <ChevronDown size={16} />}
-                    </button>
-                    <button onClick={()=> deleteItem(item.id)}
-                      className="p-1.5 hover:bg-red-500/10 text-red-400 rounded"
-                      title="删除"
-                      >
-                      <X size={16} />
-                    </button>
-                  </div>
-                  )}
-                </td>
+            <table className="w-full border-collapse mb-2 table-auto">
+              <thead>
+                <tr>
+                  {visibleColumns.map(col => (
+                    <th key={col.id} className="border border-gray-400 p-1 text-left bg-gray-100">{col.label}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {items.map(item => (
+                  <tr key={item.id}>
+                    {visibleColumns.map(col => (
+                      <td key={col.id} className="border border-gray-400 p-1">
+                        {col.id === 'preview' || col.id === 'orderImage' || col.id === 'paymentProof' ? (
+                          item[col.id] || (col.id === 'preview' && item.previewUrl) ? (
+                            <img src={item[col.id] || item.previewUrl} className="w-16 h-16 object-contain mx-auto" alt={col.label}
+                              crossOrigin="anonymous" />
+                          ) : ''
+                        ) : ['amount', 'subtotal', 'totalWithTax', 'tax', 'unitPrice'].includes(col.id)
+                          ? `¥${Number(item[col.id] || 0).toFixed(2)}`
+                          : (item[col.id] || '')}
+                      </td>
+                    ))}
+                  </tr>
                 ))}
-              </tr>
-              {
-              expandedRows.has(item.id) && (
-              <tr>
-                <td colSpan={columns.filter(c=> c.visible).length} className="bg-[#0f0f0f]">
-                  <div className="p-4 grid grid-cols-1 md:grid-cols-3 gap-4">
-                    {/* Render all fields in expanded view for completeness, or just the ones not in main table?
+              </tbody>
+              <tfoot>
+                <tr>
+                  <td colSpan={visibleColumns.length - 1} className="border border-gray-400 p-1 text-right font-bold bg-gray-50">
+                    总计:</td>
+                  <td className="border border-gray-400 p-1 text-right font-bold bg-gray-50">¥{pdfTotalAmount.toFixed(2)}</td>
+                </tr>
+              </tfoot>
+            </table>
+
+            <div className="text-xs mt-6">
+              <p><strong>备注:</strong></p>
+              <p className="min-h-[30px] border-b border-gray-300"></p>
+            </div>
+
+            <div className="flex justify-between mt-8 text-xs">
+              <p><strong>报销人签字:</strong> <span className="min-w-[100px] inline-block border-b border-gray-300"></span></p>
+              <p><strong>审核人签字:</strong> <span className="min-w-[100px] inline-block border-b border-gray-300"></span></p>
+            </div>
+          </div>
+        );
+      };
+
+      // Main App return
+      return (
+        <div className="min-h-screen bg-gradient-to-br from-[#0a0a0a] via-[#1a1a1a] to-[#0a0a0a]">
+
+          {/* OCR Confirmation Dialog */}
+          {ocrConfirmation.show && (
+            <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-6" onClick={() =>
+              setOcrConfirmation({ show: false, itemId: null, file: null, imageUrl: null })}>
+              <div className="bg-[#1a1a1a] rounded-xl p-8 max-w-md w-full border border-[#2a2a2a]" onClick={(e) =>
+                e.stopPropagation()}>
+                <h3 className="text-xl font-bold mb-2 font-cn text-center">是否使用自动识别？</h3>
+                <p className="text-gray-500 text-xs text-center mb-6">Powered by Qwen</p>
+                {ocrConfirmation.imageUrl && (
+                  <div className="mb-6 flex justify-center">
+                    <img src={ocrConfirmation.imageUrl} alt="Preview" className="max-h-48 rounded border border-[#2a2a2a]" />
+                  </div>
+                )}
+                <div className="flex gap-4">
+                  <button onClick={async () => {
+                    const { itemId, file, imageUrl } = ocrConfirmation;
+                    setOcrConfirmation({ show: false, itemId: null, file: null, imageUrl: null });
+                    updateItem(itemId, 'previewUrl', imageUrl);
+                    updateItem(itemId, 'file', file);
+                    setIsProcessing(true);
+                    try {
+                      const reader = new FileReader();
+                      const imageBase64 = await new Promise((resolve, reject) => {
+                        reader.onload = () => resolve(reader.result);
+                        reader.onerror = reject;
+                        reader.readAsDataURL(file);
+                      });
+                      const response = await fetch('/api/ocr', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ image: imageBase64 })
+                      });
+                      if (!response.ok) throw new Error('OCR failed');
+                      const data = await response.json();
+
+                      if (data) {
+                        Object.entries(data).forEach(([key, value]) => {
+                          if (value !== null && value !== undefined && value !== '') {
+                            updateItem(itemId, key, value);
+                          }
+                        });
+                      }
+                    } catch (error) {
+                      console.error('OCR Error:', error);
+                      alert('OCR识别失败：' + error.message);
+                    } finally {
+                      setIsProcessing(false);
+                    }
+                  }} className="flex-1 bg-yellow-500 hover:bg-yellow-600 text-black py-3 rounded-lg font-cn font-semibold
+          transition">是</button>
+                  <button onClick={() => {
+                    const { itemId, imageUrl, file } = ocrConfirmation;
+                    updateItem(itemId, 'previewUrl', imageUrl);
+                    updateItem(itemId, 'file', file);
+                    setOcrConfirmation({ show: false, itemId: null, file: null, imageUrl: null });
+                  }} className="flex-1 bg-[#2a2a2a] hover:bg-[#3a3a3a] text-gray-300 py-3 rounded-lg font-cn
+          transition">否</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Tutorial Welcome Card */}
+          {showTutorial && (
+            <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+              <div className="card-modern rounded-2xl p-8 max-w-2xl w-full relative animate-fade-in">
+                <button onClick={closeTutorial} className="absolute top-4 right-4 text-gray-400 hover:text-white transition">
+                  <X size={24} />
+                </button>
+
+                <div className="text-center mb-6">
+                  <div className="w-40 h-15 items-center justify-center mx-auto mb-4 overflow-hidden">
+                    <img src="logo.png" alt="Kairos Studio" className="w-full h-full object-contain" />
+                  </div>
+                  <h2 className="text-2xl font-bold mb-2 font-cn">欢迎使用 Kairos Studio 报销单整理工具</h2>
+                  <p className="text-gray-400 text-sm font-en">QUICK START GUIDE</p>
+                </div>
+
+                <div className="space-y-4 mb-6">
+                  <div className="flex gap-4 items-start">
+                    <div className="w-8 h-8 bg-yellow-400/10 rounded-full flex items-center justify-center flex-shrink-0 mt-1">
+                      <span className="text-yellow-400 font-bold">1</span>
+                    </div>
+                    <div>
+                      <h3 className="font-semibold mb-1 font-cn">填写报销信息</h3>
+                      <p className="text-sm text-gray-400">输入报销人、所属项目、报销日期和收款信息</p>
+                    </div>
+                  </div>
+
+                  <div className="flex gap-4 items-start">
+                    <div className="w-8 h-8 bg-yellow-400/10 rounded-full flex items-center justify-center flex-shrink-0 mt-1">
+                      <span className="text-yellow-400 font-bold">2</span>
+                    </div>
+                    <div>
+                      <h3 className="font-semibold mb-1 font-cn">上传发票</h3>
+                      <p className="text-sm text-gray-400">支持 JPG、PNG、PDF 格式，OCR 自动识别发票信息</p>
+                    </div>
+                  </div>
+
+                  <div className="flex gap-4 items-start">
+                    <div className="w-8 h-8 bg-yellow-400/10 rounded-full flex items-center justify-center flex-shrink-0 mt-1">
+                      <span className="text-yellow-400 font-bold">3</span>
+                    </div>
+                    <div>
+                      <h3 className="font-semibold mb-1 font-cn">补充图片</h3>
+                      <p className="text-sm text-gray-400">拖拽上传订单图和支付凭证（可选）</p>
+                    </div>
+                  </div>
+
+                  <div className="flex gap-4 items-start">
+                    <div className="w-8 h-8 bg-yellow-400/10 rounded-full flex items-center justify-center flex-shrink-0 mt-1">
+                      <span className="text-yellow-400 font-bold">4</span>
+                    </div>
+                    <div>
+                      <h3 className="font-semibold mb-1 font-cn">导出报销单</h3>
+                      <p className="text-sm text-gray-400">一键导出 Excel 或 PDF 格式，图片自动嵌入</p>
+                    </div>
+                  </div>
+                </div>
+
+                <button onClick={closeTutorial} className="w-full btn-primary py-3 rounded-lg font-semibold font-cn">
+                  开始使用
+                </button>
+              </div>
+            </div>
+          )}
+          {/* Hidden PDF Content - Always in DOM for export */}
+          <div style={{ position: 'absolute', left: '-9999px', top: '0' }}>
+            <PDFContent items={pdfItems || items} reimbursementInfo={reimbursementInfo} columns={columns} />
+          </div>
+
+          {/* Visible UI */}
+          <header className="border-b border-[#2a2a2a] px-8 py-6">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <img src="logo.png" alt="Logo" className="h-10" />
+              </div>
+              <div className="flex items-center gap-2 text-xs text-gray-500 font-en">
+                <div className="w-2 h-2 rounded-full bg-green-500"></div>
+                <span>LOCAL / OFFLINE</span>
+              </div>
+            </div>
+          </header>
+
+          {/* Main Content */}
+          <main className="max-w-7xl mx-auto p-6 space-y-6">
+
+            {/* Reimbursement Info & Upload */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+              {/* Upload Zone */}
+              <div className={`upload-zone rounded-xl p-8 flex flex-col items-center justify-center text-center cursor-pointer
+        ${isDragging ? 'drag-active' : ''}`} onDragOver={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop}
+                onClick={() => document.getElementById('fileInput').click()}
+              >
+                <input type="file" id="fileInput" multiple className="hidden" onChange={(e) => handleFiles(e.target.files)} />
+                <div className="w-14 h-14 bg-[#1a1a1a] rounded-full flex items-center justify-center mb-4">
+                  {isProcessing ?
+                    <RefreshCw className="animate-spin text-yellow-400" size={28} /> :
+                    <Upload className="text-yellow-400" size={28} />}
+                </div>
+                <p className="text-sm font-semibold mb-2 font-cn">上传发票</p>
+                <p className="text-xs text-gray-400 mb-1 font-cn">自动识别文字内容填充</p>
+                <p className="text-xs text-gray-500 font-en">支持格式：JPG、PNG、PDF</p>
+              </div>
+
+              {/* Reimbursement Info */}
+              <div className="lg:col-span-2 card-modern rounded-xl p-6">
+                <div className="flex items-center gap-2 mb-4 pb-3 border-b border-[#2a2a2a]">
+                  <Settings size={18} className="text-yellow-400" />
+                  <span className="font-semibold text-sm font-cn">报销单信息</span>
+                  <span className="text-xs text-gray-500 font-en">REIMBURSEMENT INFO</span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div>
+                    <label className="text-xs text-gray-500 mb-1.5 block font-cn">报销人</label>
+                    <input type="text" className="w-full px-3 py-2.5 input-modern rounded-lg text-sm" placeholder="例：黄鸟"
+                      value={reimbursementInfo.reimburser} onChange={e => setReimbursementInfo({
+                        ...reimbursementInfo,
+                        reimburser: e.target.value
+                      })}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-500 mb-1.5 block font-cn">所属项目</label>
+                    <input type="text" className="w-full px-3 py-2.5 input-modern rounded-lg text-sm" placeholder="例：11-12 月报销"
+                      value={reimbursementInfo.project} onChange={e => setReimbursementInfo({
+                        ...reimbursementInfo, project:
+                          e.target.value
+                      })}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-500 mb-1.5 block font-cn">报销日期</label>
+                    <input type="date" className="w-full px-3 py-2.5 input-modern rounded-lg text-sm"
+                      value={reimbursementInfo.reimbursementDate} onChange={e => setReimbursementInfo({
+                        ...reimbursementInfo,
+                        reimbursementDate: e.target.value
+                      })}
+                    />
+                  </div>
+                </div>
+                <div className="mt-4">
+                  <label className="text-xs text-gray-500 mb-1.5 block font-cn">收款信息</label>
+                  <input type="text" className="w-full px-3 py-2.5 input-modern rounded-lg text-sm" placeholder="请输入银行卡号或收款账户信息"
+                    value={reimbursementInfo.paymentInfo} onChange={e => setReimbursementInfo({
+                      ...reimbursementInfo,
+                      paymentInfo: e.target.value
+                    })}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Processing Queue */}
+            {processingQueue.length > 0 && (
+              <div className="card-modern rounded-xl p-5">
+                <h3 className="text-sm font-semibold mb-4 font-cn">处理进度</h3>
+                <div className="space-y-3">
+                  {processingQueue.map(item => (
+                    <div key={item.id} className="space-y-1.5">
+                      <div className="flex justify-between text-xs">
+                        <span className="text-gray-400 font-en">{item.name}</span>
+                        <span className={`font-semibold ${item.status === 'completed' ? 'text-green-400' : item.status === 'failed'
+                          ? 'text-red-400' : 'text-yellow-400'} font-cn`}>
+                          {item.status === 'waiting' && '等待中'}
+                          {item.status === 'processing' && '处理中...'}
+                          {item.status === 'completed' && '完成'}
+                          {item.status === 'failed' && '失败'}
+                        </span>
+                      </div>
+                      <div className="progress-bar h-1.5">
+                        <div className={`progress-fill ${item.status === 'failed' ? 'bg-red-500' : ''}`} style={{
+                          width:
+                            `${item.progress}%`
+                        }} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Items Table */}
+            {items.length > 0 && (
+              <div className="card-modern rounded-xl overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="table-modern">
+                    <thead>
+                      <tr>
+                        {columns.filter(c => c.visible).map(col => (
+                          <th key={col.id} className="font-cn whitespace-nowrap">
+                            {col.label}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {items.map(item => (
+                        <React.Fragment key={item.id}>
+                          <tr>
+                            {columns.filter(c => c.visible).map(col => (
+                              <td key={col.id} className={col.width || ''}>
+                                {/* Render Content Based on Column ID */}
+                                {col.id === 'preview' && (
+                                  !item.previewUrl ? (
+                                    <label
+                                      className="w-12 h-12 bg-[#1a1a1a] rounded flex items-center justify-center cursor-pointer hover:bg-[#2a2a2a] border border-dashed border-gray-700"
+                                      onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                                      onDrop={async (e) => {
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                        let file = e.dataTransfer.files[0];
+                                        if (file) {
+                                          if (file.type === 'application/pdf') {
+                                            file = await convertPDFToImage(file);
+                                          }
+                                          if (file && file.type.startsWith('image/')) {
+                                            const url = URL.createObjectURL(file);
+                                            setOcrConfirmation({ show: true, itemId: item.id, file: file, imageUrl: url });
+                                          }
+                                        }
+                                      }}
+                                    >
+                                      <Upload size={16} className="text-gray-500" />
+                                      <input type="file" className="hidden" accept="image/*,application/pdf" onChange={async (e) => {
+                                        let file = e.target.files[0];
+                                        if (file) {
+                                          if (file.type === 'application/pdf') {
+                                            file = await convertPDFToImage(file);
+                                          }
+                                          if (file && file.type.startsWith('image/')) {
+                                            const url = URL.createObjectURL(file);
+                                            setOcrConfirmation({ show: true, itemId: item.id, file: file, imageUrl: url });
+                                          }
+                                        }
+                                      }} />
+                                    </label>
+                                  ) : (
+                                    <div className="relative group w-12 h-12">
+                                      <img src={item.previewUrl}
+                                        className="w-12 h-12 object-cover rounded cursor-pointer border border-gray-700" onClick={() =>
+                                          setPdfPreviewUrl(item.previewUrl)} alt="invoice" />
+                                      <button onClick={(e) => {
+                                        e.stopPropagation(); updateItem(item.id, 'previewUrl', null);
+                                        updateItem(item.id, 'file', null);
+                                      }}
+                                        className="absolute -top-1 -right-1 bg-black/80 text-white rounded-full p-0.5 opacity-0
+                      group-hover:opacity-100 transition"
+                                      >
+                                        <X size={10} />
+                                      </button>
+                                    </div>
+                                  )
+                                )}
+
+                                {col.id === 'orderImage' && (
+                                  !item.orderImage ? (
+                                    <label
+                                      className="w-12 h-12 bg-[#1a1a1a] rounded flex items-center justify-center cursor-pointer hover:bg-[#2a2a2a] border border-dashed border-gray-700"
+                                      onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                                      onDrop={(e) => {
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                        const file = e.dataTransfer.files[0];
+                                        if (file && file.type.startsWith('image/')) {
+                                          handleImageUpload(item.id, 'orderImage', file);
+                                        }
+                                      }}
+                                    >
+                                      <Upload size={16} className="text-gray-500" />
+                                      <input type="file" className="hidden" accept="image/*" onChange={(e) => handleImageUpload(item.id,
+                                        'orderImage', e.target.files[0])} />
+                                    </label>
+                                  ) : (
+                                    <div className="relative group w-12 h-12">
+                                      <img src={item.orderImage}
+                                        className="w-12 h-12 object-cover rounded cursor-pointer border border-gray-700" onClick={() =>
+                                          setPdfPreviewUrl(item.orderImage)} alt="order" />
+                                      <button onClick={(e) => { e.stopPropagation(); updateItem(item.id, 'orderImage', null); }}
+                                        className="absolute -top-1 -right-1 bg-black/80 text-white rounded-full p-0.5 opacity-0
+                      group-hover:opacity-100 transition"
+                                      >
+                                        <X size={10} />
+                                      </button>
+                                    </div>
+                                  )
+                                )}
+
+                                {col.id === 'paymentProof' && (
+                                  !item.paymentProof ? (
+                                    <label
+                                      className="w-12 h-12 bg-[#1a1a1a] rounded flex items-center justify-center cursor-pointer hover:bg-[#2a2a2a] border border-dashed border-gray-700"
+                                      onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                                      onDrop={(e) => {
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                        const file = e.dataTransfer.files[0];
+                                        if (file && file.type.startsWith('image/')) {
+                                          handleImageUpload(item.id, 'paymentProof', file);
+                                        }
+                                      }}
+                                    >
+                                      <Upload size={16} className="text-gray-500" />
+                                      <input type="file" className="hidden" accept="image/*" onChange={(e) => handleImageUpload(item.id,
+                                        'paymentProof', e.target.files[0])} />
+                                    </label>
+                                  ) : (
+                                    <div className="relative group w-12 h-12">
+                                      <img src={item.paymentProof}
+                                        className="w-12 h-12 object-cover rounded cursor-pointer border border-gray-700" onClick={() =>
+                                          setPdfPreviewUrl(item.paymentProof)} alt="payment" />
+                                      <button onClick={(e) => { e.stopPropagation(); updateItem(item.id, 'paymentProof', null); }}
+                                        className="absolute -top-1 -right-1 bg-black/80 text-white rounded-full p-0.5 opacity-0
+                      group-hover:opacity-100 transition"
+                                      >
+                                        <X size={10} />
+                                      </button>
+                                    </div>
+                                  )
+                                )}
+
+                                {col.id === 'date' && (
+                                  <input type="date" className="input-modern px-3 py-1.5 rounded text-sm w-full" value={item.date}
+                                    onChange={e => updateItem(item.id, 'date', e.target.value)}
+                                  />
+                                )}
+
+                                {['category', 'description', 'itemName', 'specification', 'unit', 'taxRate', 'invoiceNumber',
+                                  'buyerName', 'sellerName', 'remarks'].includes(col.id) && (
+                                    <input type="text" className="input-modern px-3 py-1.5 rounded text-sm w-full" value={item[col.id]}
+                                      onChange={e => updateItem(item.id, col.id, e.target.value)}
+                                    />
+                                  )}
+
+                                {['amount', 'quantity', 'unitPrice', 'subtotal', 'totalWithTax', 'tax'].includes(col.id) && (
+                                  <input type="number" step="0.01"
+                                    className="input-modern px-3 py-1.5 rounded text-sm w-full text-right" value={item[col.id]}
+                                    onChange={e => updateItem(item.id, col.id, parseFloat(e.target.value) || 0)}
+                                  />
+                                )}
+
+                                {col.id === 'actions' && (
+                                  <div className="flex gap-2">
+                                    <button onClick={() => toggleRow(item.id)}
+                                      className="p-1.5 hover:bg-[#2a2a2a] rounded"
+                                      title="展开详情"
+                                    >
+                                      {expandedRows.has(item.id) ?
+                                        <ChevronUp size={16} /> :
+                                        <ChevronDown size={16} />}
+                                    </button>
+                                    <button onClick={() => deleteItem(item.id)}
+                                      className="p-1.5 hover:bg-red-500/10 text-red-400 rounded"
+                                      title="删除"
+                                    >
+                                      <X size={16} />
+                                    </button>
+                                  </div>
+                                )}
+                              </td>
+                            ))}
+                          </tr>
+                          {
+                            expandedRows.has(item.id) && (
+                              <tr>
+                                <td colSpan={columns.filter(c => c.visible).length} className="bg-[#0f0f0f]">
+                                  <div className="p-4 grid grid-cols-1 md:grid-cols-3 gap-4">
+                                    {/* Render all fields in expanded view for completeness, or just the ones not in main table?
                     For simplicity, render the inputs again or just the common ones.
                     Let's render the detailed ones. */}
-                    <div className="md:col-span-3 pb-2 border-b border-[#2a2a2a] mb-2 font-cn text-xs text-gray-400">
-                      详细信息
-                    </div>
-                    {['invoiceNumber', 'buyerName', 'sellerName', 'itemName', 'specification', 'unit', 'quantity',
-                    'unitPrice', 'taxRate', 'tax', 'remarks'].map(field => {
-                    const label = (initialColumns.find(c => c.id === field) || {}).label || field;
-                    return (
-                    <div key={field}>
-                      <label className="text-xs text-gray-500 mb-1 block font-cn">{label}</label>
-                      {field === 'remarks' ? (
-                      <textarea className="input-modern px-3 py-2 rounded text-sm w-full resize-none" rows="2"
-                        value={item[field]} onChange={e=> updateItem(item.id, field, e.target.value)}
-                                            />
-                                          ) : (
-                                            <input
-                                              type={['quantity', 'unitPrice', 'tax', 'amount'].includes(field) ? "number" : "text"}
-                                              className="input-modern px-3 py-1.5 rounded text-sm w-full"
-                                              value={item[field]}
-                                              onChange={e => updateItem(item.id, field, (['quantity', 'unitPrice', 'tax'].includes(field) ? parseFloat(e.target.value) || 0 : e.target.value))}
-                                            />
-                                          )}
-                                        </div>
-                                      );
-                                    })}
+                                    <div className="md:col-span-3 pb-2 border-b border-[#2a2a2a] mb-2 font-cn text-xs text-gray-400">
+                                      详细信息
+                                    </div>
+                                    {['invoiceNumber', 'buyerName', 'sellerName', 'itemName', 'specification', 'unit', 'quantity',
+                                      'unitPrice', 'taxRate', 'tax', 'remarks'].map(field => {
+                                        const label = (initialColumns.find(c => c.id === field) || {}).label || field;
+                                        return (
+                                          <div key={field}>
+                                            <label className="text-xs text-gray-500 mb-1 block font-cn">{label}</label>
+                                            {field === 'remarks' ? (
+                                              <textarea className="input-modern px-3 py-2 rounded text-sm w-full resize-none" rows="2"
+                                                value={item[field]} onChange={e => updateItem(item.id, field, e.target.value)}
+                                              />
+                                            ) : (
+                                              <input
+                                                type={['quantity', 'unitPrice', 'tax', 'amount'].includes(field) ? "number" : "text"}
+                                                className="input-modern px-3 py-1.5 rounded text-sm w-full"
+                                                value={item[field]}
+                                                onChange={e => updateItem(item.id, field, (['quantity', 'unitPrice', 'tax'].includes(field) ? parseFloat(e.target.value) || 0 : e.target.value))}
+                                              />
+                                            )}
+                                          </div>
+                                        );
+                                      })}
                                   </div>
                                 </td>
                               </tr>
