@@ -1,0 +1,217 @@
+    * {
+      font-family: 'Noto Sans SC', 'Plus Jakarta Sans', sans-serif;
+    }
+
+    /* Swiss Typography */
+    .font-cn {
+      font-family: 'Noto Sans SC', sans-serif;
+    }
+
+    .font-en {
+      font-family: 'Plus Jakarta Sans', sans-serif;
+    }
+
+    /* Modern Black Theme */
+    body {
+      background: #0a0a0a;
+      color: #ffffff;
+    }
+
+    .card-modern {
+      background: #141414;
+      border: 1px solid #2a2a2a;
+      transition: all 0.3s ease;
+    }
+
+    .card-modern:hover {
+      border-color: #3a3a3a;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    }
+
+    input[type="date"]::-webkit-calendar-picker-indicator {
+      filter: invert(80%) sepia(50%) saturate(500%) hue-rotate(0deg) brightness(100%);
+      cursor: pointer;
+    }
+
+    .input-modern {
+      background: #1a1a1a;
+      border: 1px solid #2a2a2a;
+      color: #ffffff;
+      transition: all 0.2s ease;
+    }
+
+    .input-modern:focus {
+      background: #1f1f1f;
+      border-color: #fbbf24;
+      outline: none;
+      box-shadow: 0 0 0 3px rgba(251, 191, 36, 0.1);
+    }
+
+    .btn-primary {
+      background: #fbbf24;
+      color: #0a0a0a;
+      font-weight: 600;
+      transition: all 0.2s ease;
+    }
+
+    .btn-primary:hover {
+      background: #f59e0b;
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(251, 191, 36, 0.3);
+    }
+
+    .upload-zone {
+      border: 2px dashed #2a2a2a;
+      background: #0f0f0f;
+      transition: all 0.3s ease;
+    }
+
+    .upload-zone:hover {
+      border-color: #fbbf24;
+      background: #141414;
+    }
+
+    .upload-zone.drag-active {
+      border-color: #fbbf24;
+      background: #1a1a1a;
+      transform: scale(1.02);
+    }
+
+    .progress-bar {
+      background: #1a1a1a;
+      overflow: hidden;
+      border-radius: 9999px;
+    }
+
+    .progress-fill {
+      height: 100%;
+      transition: width 0.3s ease;
+      background: linear-gradient(90deg, #fbbf24, #f59e0b);
+    }
+
+    /* Table Styles */
+    .table-modern {
+      width: 100%;
+      border-collapse: separate;
+      border-spacing: 0;
+    }
+
+    .table-modern th {
+      background: #141414;
+      color: #888;
+      font-weight: 600;
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      padding: 1rem;
+      border-bottom: 1px solid #2a2a2a;
+      text-align: left;
+    }
+
+    .table-modern td {
+      padding: 1rem;
+      border-bottom: 1px solid #1a1a1a;
+    }
+
+    .table-modern tr:hover {
+      background: #141414;
+    }
+
+    /* Scrollbar */
+    ::-webkit-scrollbar {
+      width: 8px;
+      height: 8px;
+    }
+
+    ::-webkit-scrollbar-track {
+      background: #0a0a0a;
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background: #2a2a2a;
+      border-radius: 4px;
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+      background: #3a3a3a;
+    }
+
+    /* PDF Preview Specific Styles */
+    .pdf-preview-container {
+      background-color: #ffffff;
+      color: #000000;
+      padding: 20mm;
+      box-sizing: border-box;
+      font-family: 'Noto Sans SC', sans-serif;
+      font-size: 10pt;
+      line-height: 1.5;
+    }
+
+    .pdf-preview-container h1 {
+      font-size: 20pt;
+      text-align: center;
+      margin-bottom: 20pt;
+      font-weight: bold;
+    }
+
+    .pdf-preview-container .info-section {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 15pt;
+      border-bottom: 1px solid #eee;
+      padding-bottom: 5pt;
+    }
+
+    .pdf-preview-container .info-item {
+      flex: 1;
+      margin-right: 10pt;
+    }
+
+    .pdf-preview-container .info-item:last-child {
+      margin-right: 0;
+    }
+
+    .pdf-preview-container .info-label {
+      font-weight: bold;
+      margin-right: 5pt;
+    }
+
+    .pdf-preview-container table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 20pt;
+    }
+
+    .pdf-preview-container th,
+    .pdf-preview-container td {
+      border: 1px solid #ddd;
+      padding: 8pt;
+      text-align: left;
+    }
+
+    .pdf-preview-container th {
+      background-color: #f2f2f2;
+      font-weight: bold;
+    }
+
+    .pdf-preview-container .total-row {
+      font-weight: bold;
+      background-color: #f9f9f9;
+    }
+
+    .pdf-preview-container .signature-section {
+      display: flex;
+      justify-content: space-around;
+      margin-top: 40pt;
+      text-align: center;
+    }
+
+    .pdf-preview-container .signature-item {
+      flex: 1;
+    }
+
+    .pdf-preview-container .signature-line {
+      border-bottom: 1px solid #000;
+      width: 80%;
+      margin: 10pt auto 0;
+    }
