@@ -38,3 +38,4 @@ window.RefreshCw = (props) => React.createElement(window.Icon, { path: 'M3 12a9 
 window.Clock = (props) => React.createElement(window.Icon, { path: 'M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10zM12 6v6l4 2', ...props });
 window.Trash2 = (props) => React.createElement(window.Icon, { path: 'M3 6h18M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2M10 11v6M14 11v6', ...props });
 window.Check = (props) => React.createElement(window.Icon, { path: 'M20 6 9 17l-5-5', ...props });
+window.Edit2 = (props) => React.createElement(window.Icon, { path: 'M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z', ...props });

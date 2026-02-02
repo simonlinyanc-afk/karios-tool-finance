@@ -238,5 +238,13 @@ window.storageRepo = {
     getHistoryRecords,
     deleteHistoryItem,
     clearAllHistory,
-    autoCleanup30Days
+    autoCleanup30Days,
+    updateHistoryTitle: async (id, newTitle) => {
+        try {
+            await db.history.update(id, { title: newTitle });
+            console.log(`✅ History item ${id} renamed to ${newTitle}`);
+        } catch (error) {
+            console.error(`❌ Failed to rename history item ${id}:`, error);
+        }
+    }
 };
