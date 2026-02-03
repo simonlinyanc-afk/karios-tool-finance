@@ -342,6 +342,40 @@
                             td.appendChild(img);
                         }
                     }
+                    // 附件列 (多图)
+                    else if (col.id === 'attachments') {
+                        const val = item.attachmentsFiles || item.attachments;
+                        const images = Array.isArray(val) ? val : (val ? [val] : []);
+
+                        const container = document.createElement('div');
+                        container.style.display = 'flex';
+                        container.style.flexWrap = 'wrap';
+                        container.style.gap = '3px';
+                        container.style.justifyContent = 'center';
+
+                        images.forEach(src => {
+                            let content = src;
+                            if (content instanceof Blob) {
+                                content = URL.createObjectURL(content);
+                            }
+                            if (content && typeof content === 'string' && !content.startsWith('http')) { // Filter out basic http links if they are raw URLs, though usually they are dataurls or blobs
+                                const img = document.createElement('img');
+                                img.src = content;
+                                img.style.width = '64px';
+                                img.style.height = '64px';
+                                img.style.objectFit = 'contain';
+                                container.appendChild(img);
+                            } else if (typeof src === 'string' && src.startsWith('data:')) {
+                                const img = document.createElement('img');
+                                img.src = src;
+                                img.style.width = '64px';
+                                img.style.height = '64px';
+                                img.style.objectFit = 'contain';
+                                container.appendChild(img);
+                            }
+                        });
+                        td.appendChild(container);
+                    }
                     // 金额列
                     else if (['amount', 'subtotal', 'totalWithTax', 'tax', 'unitPrice'].includes(col.id)) {
                         td.textContent = '¥' + Number(item[col.id] || 0).toFixed(2);

@@ -85,82 +85,67 @@ async function exportToExcel(items, columns, reimbursementInfo, onProgress = () 
 
     items.forEach((item, index) => {
         visibleColumns.forEach(col => {
-            if (['preview', 'orderImage', 'paymentProof'].includes(col.id)) {
+            if (['preview', 'orderImage', 'paymentProof', 'attachments'].includes(col.id)) {
                 let imageUrl = null;
                 if (col.id === 'preview') imageUrl = item.previewUrl || item.preview;
                 else if (col.id === 'orderImage') imageUrl = item.orderImageUrl || item.orderImage;
                 else if (col.id === 'paymentProof') imageUrl = item.paymentProofUrl || item.paymentProof;
+                else if (col.id === 'attachments') imageUrl = item.attachments;
 
                 if (imageUrl) {
-                    // Count total tasks first
-                    totalImages++;
-                    imageTasks.push((async () => {
-                        try {
-                            // OPTIMIZATION: Check if we can skip resize
-                            // If item has a flag or if we detect it's already a specific 'compressedBase64'
-                            // For now, if it is a data URL, we trust it if generic optimization is not strictly enforced,
-                            // BUT standard is 0.6.
+                    // Extract as array to handle single or multiple
+                    const urls = Array.isArray(imageUrl) ? imageUrl : [imageUrl];
 
-                            // User Instruction: "If passed items have compressedBase64, use it"
-                            // Use the property directly if available in the item context?
-                            // formatting: items[index].compressedBase64 maps to 'preview'?
-                            // Let's check item directly from the main array since we have access via closure 'item'
+                    urls.forEach((url, imgIdx) => {
+                        // Count total tasks first
+                        totalImages++;
+                        imageTasks.push((async () => {
+                            try {
+                                let finalBase64 = null;
 
-                            let finalBase64 = null;
-
-                            // Check for pre-calculated compressed version (from Dual Stream or History)
-                            // We need to know WHICH column this maps the specific image to.
-                            // The task says "tell exportManager... if input items have compressedBase64..."
-                            // Assuming 'compressedBase64' corresponds to the main 'preview' image.
-
-                            if (col.id === 'preview' && item.compressedBase64) {
-                                finalBase64 = item.compressedBase64;
-                            }
-                            // Check if it's already a data string (History items are Base64)
-                            // And if we want to avoid re-compression (Costly!)
-                            else if (typeof imageUrl === 'string' && imageUrl.startsWith('data:image')) {
-                                // It is likely already compressed from History or Dual Stream
-                                finalBase64 = imageUrl;
-                            }
-                            else {
-                                // Ensure resizeImage is available (from finance.js)
-                                if (typeof resizeImage !== 'function') {
-                                    console.error('resizeImage function not found');
-                                    return;
+                                // Optimization logic (simplified for loop)
+                                if (col.id === 'preview' && item.compressedBase64 && imgIdx === 0) {
+                                    finalBase64 = item.compressedBase64;
                                 }
-                                // Use 0.6 quality for Excel optimization
-                                finalBase64 = await resizeImage(imageUrl, 0.6);
-                            }
+                                else if (typeof url === 'string' && url.startsWith('data:image')) {
+                                    finalBase64 = url;
+                                }
+                                else {
+                                    if (typeof resizeImage !== 'function') return;
+                                    finalBase64 = await resizeImage(url, 0.6);
+                                }
 
-                            if (finalBase64) {
-                                // Measure image dimensions
-                                const dimensions = await new Promise((resolve) => {
-                                    const img = new Image();
-                                    img.onload = () => resolve({ w: img.width, h: img.height });
-                                    img.onerror = () => resolve({ w: 100, h: 100 }); // Default
-                                    img.src = finalBase64;
-                                    // Safety timeout
-                                    setTimeout(() => resolve({ w: 100, h: 100 }), 500);
+                                if (finalBase64) {
+                                    // Measure dimensions
+                                    const dimensions = await new Promise((resolve) => {
+                                        const img = new Image();
+                                        img.onload = () => resolve({ w: img.width, h: img.height });
+                                        img.onerror = () => resolve({ w: 100, h: 100 });
+                                        img.src = finalBase64;
+                                        setTimeout(() => resolve({ w: 100, h: 100 }), 500);
+                                    });
+
+                                    if (!imageMap[index]) imageMap[index] = {};
+                                    if (!imageMap[index][col.id]) imageMap[index][col.id] = [];
+
+                                    imageMap[index][col.id].push({
+                                        base64: finalBase64,
+                                        width: dimensions.w,
+                                        height: dimensions.h
+                                    });
+                                }
+                            } catch (e) {
+                                console.warn('Failed to process image', e);
+                            } finally {
+                                processedImages++;
+                                onProgress({
+                                    processed: processedImages,
+                                    total: totalImages,
+                                    message: `正在处理图片 ${processedImages}/${totalImages}`
                                 });
-
-                                if (!imageMap[index]) imageMap[index] = {};
-                                imageMap[index][col.id] = {
-                                    base64: finalBase64,
-                                    width: dimensions.w,
-                                    height: dimensions.h
-                                };
                             }
-                        } catch (e) {
-                            console.warn('Failed to process image for export', e);
-                        } finally {
-                            processedImages++;
-                            onProgress({
-                                processed: processedImages,
-                                total: totalImages,
-                                message: `正在处理图片 ${processedImages}/${totalImages}`
-                            });
-                        }
-                    })());
+                        })());
+                    });
                 }
             }
         });
@@ -176,15 +161,12 @@ async function exportToExcel(items, columns, reimbursementInfo, onProgress = () 
 
     // --- Row Generation ---
     for (let i = 0; i < items.length; i++) {
+        // ... (Row creation same as before)
         const item = items[i];
         const rowValues = visibleColumns.map(col => {
-            // Placeholder for image columns
-            if (['preview', 'orderImage', 'paymentProof'].includes(col.id)) {
-                return '';
-            }
+            if (['preview', 'orderImage', 'paymentProof', 'attachments'].includes(col.id)) return '';
             return item[col.id];
         });
-
         const row = worksheet.addRow(rowValues);
         const rowIndex = row.number;
 
@@ -192,29 +174,50 @@ async function exportToExcel(items, columns, reimbursementInfo, onProgress = () 
         let hasImage = false;
         if (imageMap[i]) {
             visibleColumns.forEach((col, colIdx) => {
-                if (imageMap[i][col.id]) {
+                if (imageMap[i][col.id] && imageMap[i][col.id].length > 0) {
                     hasImage = true;
-                    const imgData = imageMap[i][col.id];
+                    // Force single image for preview/order/proof, multi for attachments
+                    // Actually our processing logic returns array for all.
+                    // But for these standard columns, we usually only want the first one if it happens to be array?
+                    // well paymentProof was multi before, now single. 
+                    // Let's just render whatever comes back.
+                    const images = imageMap[i][col.id];
 
-                    // Layout calculation: Scale to fit 60x60 box (safe zone within 80px row)
-                    const maxW = 60;
-                    const maxH = 60;
-                    let w = imgData.width || 100;
-                    let h = imgData.height || 100;
-                    const aspectRatio = w / h;
+                    let currentXOffset = 0.1;
 
-                    if (h > maxH) { h = maxH; w = h * aspectRatio; }
-                    if (w > maxW) { w = maxW; h = w / aspectRatio; }
+                    // Multi-image layout (e.g., attachments)
+                    if (col.id === 'attachments') {
+                        images.forEach(imgData => {
+                            const maxW = 40; const maxH = 60; // Slightly narrower for multi
+                            // ...
+                            let w = imgData.width || 100; let h = imgData.height || 100;
+                            const aspectRatio = w / h;
+                            if (h > maxH) { h = maxH; w = h * aspectRatio; }
+                            if (w > maxW) { w = maxW; h = w / aspectRatio; }
 
-                    const imageId = workbook.addImage({
-                        base64: imgData.base64,
-                        extension: 'png',
-                    });
+                            const imageId = workbook.addImage({ base64: imgData.base64, extension: 'png' });
+                            worksheet.addImage(imageId, {
+                                tl: { col: colIdx + currentXOffset, row: rowIndex - 1 + 0.1 },
+                                ext: { width: w, height: h }
+                            });
+                            currentXOffset += 0.3; // overlap stack
+                        });
+                    } else {
+                        // Standard Single Image (or just first of array)
+                        const imgData = images[0];
+                        // ... layout logic for single ...
+                        const maxW = 60; const maxH = 60;
+                        let w = imgData.width || 100; let h = imgData.height || 100;
+                        const aspectRatio = w / h;
+                        if (h > maxH) { h = maxH; w = h * aspectRatio; }
+                        if (w > maxW) { w = maxW; h = w / aspectRatio; }
 
-                    worksheet.addImage(imageId, {
-                        tl: { col: colIdx + 0.1, row: rowIndex - 1 + 0.1 }, // Centered-ish padding
-                        ext: { width: w, height: h }
-                    });
+                        const imageId = workbook.addImage({ base64: imgData.base64, extension: 'png' });
+                        worksheet.addImage(imageId, {
+                            tl: { col: colIdx + 0.1, row: rowIndex - 1 + 0.1 },
+                            ext: { width: w, height: h }
+                        });
+                    }
                 }
             });
         }
@@ -298,21 +301,38 @@ async function exportToPrint(items, columns, reimbursementInfo) {
             const newItem = { ...item };
 
             const ensureBlob = async (urlProp, fileProp) => {
-                const url = newItem[urlProp];
-                if (url && typeof url === 'string' && url.startsWith('blob:')) {
-                    try {
-                        const res = await fetch(url);
-                        const blob = await res.blob();
-                        newItem[fileProp] = blob;
-                    } catch (e) {
-                        console.warn(`Failed to hydrate ${urlProp}`, e);
+                const val = newItem[urlProp];
+
+                // Helper to process single URL
+                const processUrl = async (u) => {
+                    if (u && typeof u === 'string' && u.startsWith('blob:')) {
+                        try {
+                            const res = await fetch(u);
+                            return await res.blob();
+                        } catch (e) {
+                            console.warn(`Failed to hydrate ${u}`, e);
+                            return null;
+                        }
                     }
+                    // Return original value if it's not a blob URL (e.g. data URL) to avoid clobbering valid data with null
+                    return u;
+                };
+
+                if (Array.isArray(val)) {
+                    // Handle Array
+                    newItem[fileProp] = await Promise.all(val.map(processUrl));
+                } else {
+                    // Handle Single
+                    newItem[fileProp] = await processUrl(val);
                 }
             };
 
             await ensureBlob('previewUrl', 'file');
             await ensureBlob('orderImage', 'orderImageFile');
+            await ensureBlob('previewUrl', 'file');
+            await ensureBlob('orderImage', 'orderImageFile');
             await ensureBlob('paymentProof', 'paymentProofFile');
+            await ensureBlob('attachments', 'attachmentsFiles');
 
             return newItem;
         }));

@@ -37,16 +37,34 @@ window.PDFTemplate = ({ items, reimbursementInfo, columns }) => {
                             {visibleColumns.map(col => (
                                 <td key={col.id} className="border border-gray-400 p-1">
                                     {(() => {
-                                        if (['preview', 'orderImage', 'paymentProof'].includes(col.id)) {
-                                            let url = null;
-                                            if (col.id === 'preview') url = item.previewUrl || item.preview;
-                                            else if (col.id === 'orderImage') url = item.orderImageUrl || item.orderImage;
-                                            else if (col.id === 'paymentProof') url = item.paymentProofUrl || item.paymentProof;
-                                            else url = item[col.id];
+                                        if (col.id === 'attachments') {
+                                            const val = item.attachments;
+                                            // Handle case where val is a single string (Base64) or array
+                                            const images = Array.isArray(val) ? val : (val && typeof val === 'string' ? [val] : []);
 
-                                            return url ? (
-                                                <img src={url} className="w-16 h-16 object-contain mx-auto" alt={col.label} />
-                                            ) : null;
+                                            if (images.length > 0) {
+                                                return (
+                                                    <div className="flex flex-wrap gap-[3px] justify-center">
+                                                        {images.map((src, idx) => (
+                                                            <img key={idx} src={src} className="w-16 h-16 object-contain" alt={`attach-${idx}`} />
+                                                        ))}
+                                                    </div>
+                                                );
+                                            }
+                                            return null;
+                                        } else if (['paymentProof', 'preview', 'orderImage'].includes(col.id)) {
+                                            // Handle single image columns (legacy array check just in case)
+                                            let src = item[col.id];
+                                            if (col.id === 'preview') src = item.previewUrl || item.preview;
+                                            else if (col.id === 'orderImage') src = item.orderImageUrl || item.orderImage;
+                                            else if (col.id === 'paymentProof') src = item.paymentProofUrl || item.paymentProof;
+
+                                            if (Array.isArray(src)) src = src[0];
+
+                                            if (src) {
+                                                return <img src={src} className="w-16 h-16 object-contain mx-auto" alt={col.label} />;
+                                            }
+                                            return null;
                                         }
 
                                         // Non-image columns

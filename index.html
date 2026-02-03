@@ -164,7 +164,8 @@
       const initialColumns = [
         { id: 'preview', label: '发票图', visible: true, fixed: true, width: 'w-20' },
         { id: 'orderImage', label: '订单图', visible: true, width: 'w-20' },
-        { id: 'paymentProof', label: '支付凭证/附件', visible: true, width: 'w-20' },
+        { id: 'paymentProof', label: '支付凭证', visible: true, width: 'w-20' },
+        { id: 'attachments', label: '其他附件', visible: true, width: 'w-24' },
         { id: 'date', label: '日期', visible: true, width: 'w-32' },
         { id: 'category', label: '类别', visible: true, width: 'w-24' },
         { id: 'description', label: '摘要说明（如有附加信息请手动输入）', visible: true, width: 'w-48' },
@@ -702,6 +703,7 @@
             previewUrl={pdfPreviewUrl}
             onClose={() => setPdfPreviewUrl(null)}
             items={items}
+            updateItem={updateItem}
           />
 
         </div>

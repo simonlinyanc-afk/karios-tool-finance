@@ -57,13 +57,13 @@ window.HistorySidebar = ({ isOpen, onClose, onRestore, onExport }) => {
             {/* Backdrop with Blur - Clicking outside closes sidebar */}
             {isOpen && (
                 <div
-                    className="fixed inset-0 bg-black/60 backdrop-blur-md z-40 transition-opacity duration-300"
+                    className="fixed inset-0 bg-black/60 backdrop-blur-md z-[70] transition-opacity duration-300"
                     onClick={onClose}
                 ></div>
             )}
 
             {/* Sidebar Styling: Dark Mode, Wider (w-96) */}
-            <div className={`fixed inset-y-0 right-0 w-96 bg-[#1a1a1a] shadow-2xl transform transition-transform duration-300 ease-in-out z-50 border-l border-[#333] ${isOpen ? 'translate-x-0' : 'translate-x-full'}`}>
+            <div className={`fixed inset-y-0 right-0 w-96 bg-[#1a1a1a] shadow-2xl transform transition-transform duration-300 ease-in-out z-[80] border-l border-[#333] ${isOpen ? 'translate-x-0' : 'translate-x-full'}`}>
                 <div className="h-full flex flex-col">
                     {/* Header */}
                     <div className="p-6 border-b border-[#2a2a2a] flex justify-between items-center bg-[#1a1a1a]">

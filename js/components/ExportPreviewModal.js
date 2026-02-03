@@ -108,8 +108,20 @@ window.ExportPreviewModal = ({
                                             <tr key={item.id} className={idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
                                                 {columns.filter(c => c.visible && c.id !== 'actions').map(col => (
                                                     <td key={col.id} className="border border-gray-300 p-2 text-left text-gray-600 truncate max-w-[150px]" title={typeof item[col.id] === 'string' ? item[col.id] : ''}>
-                                                        {['preview', 'orderImage', 'paymentProof'].includes(col.id) ? (
+                                                        {['preview', 'orderImage', 'paymentProof', 'attachments'].includes(col.id) ? (
                                                             (() => {
+                                                                if (col.id === 'attachments') {
+                                                                    const val = item[col.id];
+                                                                    const images = Array.isArray(val) ? val : (val && typeof val === 'string' ? [val] : []);
+                                                                    return images.length > 0 ? (
+                                                                        <div className="flex gap-1 flex-wrap">
+                                                                            {images.map((url, i) => (
+                                                                                <img key={i} src={url} alt="att" className="h-10 w-10 object-cover rounded border border-gray-200" />
+                                                                            ))}
+                                                                        </div>
+                                                                    ) : <span className="text-gray-300">-</span>;
+                                                                }
+
                                                                 let url = null;
                                                                 if (col.id === 'preview') url = item.previewUrl || item.preview;
                                                                 else if (col.id === 'orderImage') url = item.orderImageUrl || item.orderImage;

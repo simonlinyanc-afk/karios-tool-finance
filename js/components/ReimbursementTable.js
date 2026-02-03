@@ -89,7 +89,7 @@ window.ReimbursementTable = ({
                                 {columns.filter(c => c.visible).map(col => {
                                     const isSortable = ['amount', 'date', 'category'].includes(col.id);
                                     return (
-                                        <th key={col.id} className="font-cn whitespace-nowrap sticky top-0 bg-[#141414] z-10 px-4 py-3">
+                                        <th key={col.id} className="font-cn whitespace-nowrap sticky top-0 bg-[#141414] z-50 px-4 py-3">
                                             <div className={`flex items-center gap-1 ${isSortable ? 'cursor-pointer hover:text-white group' : ''}`}
                                                 onClick={() => isSortable && handleSort(col.id)}>
                                                 {col.label}
@@ -172,18 +172,33 @@ window.ReimbursementTable = ({
                                                         <label
                                                             className="w-12 h-12 bg-[#1a1a1a] rounded flex items-center justify-center cursor-pointer hover:bg-[#2a2a2a] border border-dashed border-gray-700"
                                                             onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
-                                                            onDrop={(e) => {
+                                                            onDrop={async (e) => {
                                                                 e.preventDefault();
                                                                 e.stopPropagation();
-                                                                const file = e.dataTransfer.files[0];
-                                                                if (file && file.type.startsWith('image/')) {
-                                                                    handleImageUpload(item.id, 'orderImage', file);
+                                                                let file = e.dataTransfer.files[0];
+                                                                if (file) {
+                                                                    if (file.type === 'application/pdf') {
+                                                                        file = await convertPDFToImage(file);
+                                                                    }
+                                                                    // Check for image/ after potential conversion
+                                                                    if (file && file.type.startsWith('image/')) {
+                                                                        handleImageUpload(item.id, 'orderImage', file);
+                                                                    }
                                                                 }
                                                             }}
                                                         >
                                                             <Upload size={16} className="text-gray-500" />
-                                                            <input type="file" className="hidden" accept="image/*" onChange={(e) => handleImageUpload(item.id,
-                                                                'orderImage', e.target.files[0])} />
+                                                            <input type="file" className="hidden" accept="image/*,application/pdf" onChange={async (e) => {
+                                                                let file = e.target.files[0];
+                                                                if (file) {
+                                                                    if (file.type === 'application/pdf') {
+                                                                        file = await convertPDFToImage(file);
+                                                                    }
+                                                                    if (file && file.type.startsWith('image/')) {
+                                                                        handleImageUpload(item.id, 'orderImage', file);
+                                                                    }
+                                                                }
+                                                            }} />
                                                         </label>
                                                     ) : (
                                                         <div className="relative group w-12 h-12">
@@ -205,18 +220,32 @@ window.ReimbursementTable = ({
                                                         <label
                                                             className="w-12 h-12 bg-[#1a1a1a] rounded flex items-center justify-center cursor-pointer hover:bg-[#2a2a2a] border border-dashed border-gray-700"
                                                             onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
-                                                            onDrop={(e) => {
+                                                            onDrop={async (e) => {
                                                                 e.preventDefault();
                                                                 e.stopPropagation();
-                                                                const file = e.dataTransfer.files[0];
-                                                                if (file && file.type.startsWith('image/')) {
-                                                                    handleImageUpload(item.id, 'paymentProof', file);
+                                                                let file = e.dataTransfer.files[0];
+                                                                if (file) {
+                                                                    if (file.type === 'application/pdf') {
+                                                                        file = await convertPDFToImage(file);
+                                                                    }
+                                                                    if (file && file.type.startsWith('image/')) {
+                                                                        handleImageUpload(item.id, 'paymentProof', file);
+                                                                    }
                                                                 }
                                                             }}
                                                         >
                                                             <Upload size={16} className="text-gray-500" />
-                                                            <input type="file" className="hidden" accept="image/*" onChange={(e) => handleImageUpload(item.id,
-                                                                'paymentProof', e.target.files[0])} />
+                                                            <input type="file" className="hidden" accept="image/*,application/pdf" onChange={async (e) => {
+                                                                let file = e.target.files[0];
+                                                                if (file) {
+                                                                    if (file.type === 'application/pdf') {
+                                                                        file = await convertPDFToImage(file);
+                                                                    }
+                                                                    if (file && file.type.startsWith('image/')) {
+                                                                        handleImageUpload(item.id, 'paymentProof', file);
+                                                                    }
+                                                                }
+                                                            }} />
                                                         </label>
                                                     ) : (
                                                         <div className="relative group w-12 h-12">
@@ -231,6 +260,107 @@ window.ReimbursementTable = ({
                                                             </button>
                                                         </div>
                                                     )
+                                                )}
+
+                                                {col.id === 'attachments' && (
+                                                    (() => {
+                                                        const proofs = Array.isArray(item.attachments)
+                                                            ? item.attachments
+                                                            : (item.attachments ? [item.attachments] : []);
+
+                                                        const handleAppendBatch = async (files) => {
+                                                            if (!files || files.length === 0) return;
+
+                                                            const currentCount = proofs.length;
+                                                            const remaining = 5 - currentCount;
+
+                                                            if (remaining <= 0) {
+                                                                alert('最多只能上传 5 个附件');
+                                                                return;
+                                                            }
+
+                                                            let filesToProcess = Array.from(files);
+                                                            if (filesToProcess.length > remaining) {
+                                                                alert(`最多只能上传 5 个附件，已自动截取前 ${remaining} 个文件`);
+                                                                filesToProcess = filesToProcess.slice(0, remaining);
+                                                            }
+
+                                                            const newUrls = [];
+                                                            for (let i = 0; i < filesToProcess.length; i++) {
+                                                                let file = filesToProcess[i];
+                                                                if (file.type === 'application/pdf' && window.convertPDFToImage) {
+                                                                    file = await window.convertPDFToImage(file);
+                                                                }
+                                                                if (file && file.type.startsWith('image/')) {
+                                                                    newUrls.push(URL.createObjectURL(file));
+                                                                }
+                                                            }
+                                                            if (newUrls.length > 0) {
+                                                                updateItem(item.id, 'attachments', [...proofs, ...newUrls]);
+                                                            }
+                                                        };
+
+                                                        if (proofs.length === 0) {
+                                                            return (
+                                                                <label
+                                                                    className="w-12 h-12 bg-[#1a1a1a] rounded flex items-center justify-center cursor-pointer hover:bg-[#2a2a2a] border border-dashed border-gray-700"
+                                                                    onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                                                                    onDrop={async (e) => {
+                                                                        e.preventDefault(); e.stopPropagation();
+                                                                        handleAppendBatch(e.dataTransfer.files);
+                                                                    }}
+                                                                >
+                                                                    <Upload size={16} className="text-gray-500" />
+                                                                    <input type="file" className="hidden" multiple accept="image/*,application/pdf" onChange={(e) => handleAppendBatch(e.target.files)} />
+                                                                </label>
+                                                            );
+                                                        } else {
+                                                            return (
+                                                                <div className="flex items-center gap-4">
+                                                                    <div className="relative group w-12 h-12 shrink-0 cursor-pointer" onClick={() => setPdfPreviewUrl(proofs[0])}>
+                                                                        {/* Stack Effect */}
+                                                                        {proofs.length > 1 && (
+                                                                            <div className="absolute top-1 -right-1 w-12 h-12 bg-[#333] rounded border border-gray-600 z-0 rotate-6 transform"></div>
+                                                                        )}
+                                                                        {/* Main Image */}
+                                                                        <img src={proofs[0]}
+                                                                            className="relative z-10 w-12 h-12 object-cover rounded border border-gray-700 bg-[#1a1a1a]"
+                                                                            alt="attachment" />
+
+                                                                        {/* Count Badge */}
+                                                                        {proofs.length > 1 && (
+                                                                            <div className="absolute -bottom-1 -right-1 z-20 bg-yellow-500 text-black text-[10px] font-bold px-1 rounded-sm shadow-sm">
+                                                                                {proofs.length}
+                                                                            </div>
+                                                                        )}
+
+                                                                        {/* Clear Button */}
+                                                                        <button onClick={(e) => { e.stopPropagation(); updateItem(item.id, 'attachments', null); }}
+                                                                            className="absolute -top-2 -left-2 bg-black/80 text-white rounded-full p-0.5 opacity-0
+                                  group-hover:opacity-100 transition z-30"
+                                                                        >
+                                                                            <X size={10} />
+                                                                        </button>
+                                                                    </div>
+
+                                                                    {/* Add Button */}
+                                                                    {proofs.length < 5 && (
+                                                                        <label
+                                                                            className="w-12 h-12 bg-[#1a1a1a] rounded flex items-center justify-center cursor-pointer hover:bg-[#2a2a2a] border border-dashed border-gray-700 transition"
+                                                                            onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                                                                            onDrop={async (e) => {
+                                                                                e.preventDefault(); e.stopPropagation();
+                                                                                handleAppendBatch(e.dataTransfer.files);
+                                                                            }}
+                                                                        >
+                                                                            <Plus size={16} className="text-gray-500" />
+                                                                            <input type="file" className="hidden" multiple accept="image/*,application/pdf" onChange={(e) => handleAppendBatch(e.target.files)} />
+                                                                        </label>
+                                                                    )}
+                                                                </div>
+                                                            );
+                                                        }
+                                                    })()
                                                 )}
 
                                                 {col.id === 'date' && (
