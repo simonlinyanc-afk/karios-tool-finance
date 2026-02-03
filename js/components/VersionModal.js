@@ -11,11 +11,11 @@ window.VersionModal = ({ isOpen, onClose, versionData }) => {
             onClick={onClose}
         >
             <div
-                className="bg-[#141414] rounded-xl shadow-2xl w-full max-w-md border border-[#2a2a2a] overflow-hidden"
+                className="bg-[#141414] rounded-xl shadow-2xl w-full max-w-2xl border border-[#2a2a2a] overflow-hidden"
                 onClick={e => e.stopPropagation()}
             >
                 {/* Header */}
-                <div className="relative h-32 bg-gradient-to-br from-yellow-500/10 to-transparent flex items-center justify-center border-b border-[#2a2a2a]">
+                <div className="relative h-32 bg-gradient-to-br from-yellow-500/10 to-transparent flex items-center justify-center border-b border-[#2a2a2a] shrink-0">
                     <div className="text-center pb-4">
                         <div className="inline-block px-3 py-1 rounded-full bg-yellow-500/20 border border-yellow-500/30 text-yellow-500 text-xs font-mono mb-3">
                             Whats New
@@ -35,7 +35,7 @@ window.VersionModal = ({ isOpen, onClose, versionData }) => {
 
                 {/* Content */}
                 <div className="p-6">
-                    <div className="space-y-4">
+                    <div className="space-y-4 max-h-[50vh] overflow-y-auto custom-scrollbar pr-2">
                         {versionData.updates.map((update, index) => (
                             <div key={index} className="flex gap-3 text-sm text-gray-300">
                                 <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-yellow-500 shrink-0"></span>
@@ -45,7 +45,7 @@ window.VersionModal = ({ isOpen, onClose, versionData }) => {
                     </div>
 
                     {/* Footer */}
-                    <div className="mt-8 pt-4 border-t border-[#2a2a2a] flex justify-center">
+                    <div className="mt-6 pt-4 border-t border-[#2a2a2a] flex justify-center">
                         <a
                             href={versionData.historyLink}
                             target="_blank"
