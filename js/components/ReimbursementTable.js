@@ -172,7 +172,21 @@ window.ReimbursementTable = ({
                                                     />
                                                 )}
 
-                                                {['category', 'description', 'itemName', 'specification', 'unit', 'taxRate', 'invoiceNumber',
+                                                {col.id === 'description' && (
+                                                    <textarea
+                                                        className="input-modern px-3 py-1.5 rounded text-sm w-full resize-y min-h-[34px] leading-tight"
+                                                        value={item.description}
+                                                        rows={1}
+                                                        onChange={e => updateItem(item.id, 'description', e.target.value)}
+                                                        style={{ fieldSizing: 'content' }} // Modern browser support for auto-grow
+                                                        onInput={(e) => {
+                                                            e.target.style.height = 'auto';
+                                                            e.target.style.height = e.target.scrollHeight + 'px';
+                                                        }}
+                                                    />
+                                                )}
+
+                                                {['category', 'itemName', 'specification', 'unit', 'taxRate', 'invoiceNumber',
                                                     'buyerName', 'sellerName', 'remarks'].includes(col.id) && (
                                                         <input type="text" className="input-modern px-3 py-1.5 rounded text-sm w-full" value={item[col.id]}
                                                             onChange={e => updateItem(item.id, col.id, e.target.value)}
