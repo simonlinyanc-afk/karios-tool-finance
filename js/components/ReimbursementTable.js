@@ -22,8 +22,60 @@ window.ReimbursementTable = ({
 }) => {
     // Access global Icons and Utils
     const {
-        Upload, X, ChevronDown, ChevronUp, Settings, Plus, Eye, RefreshCw
-    } = window; // Icons attached to window
+        Upload, X, ChevronDown, ChevronUp, Settings, Plus, Eye, RefreshCw, ArrowUpDown
+    } = window;
+
+    // Sort State
+    const [sortConfig, setSortConfig] = React.useState({ key: null, direction: 'asc' });
+
+    const handleSort = (key) => {
+        let direction = 'asc';
+        if (sortConfig.key === key) {
+            if (sortConfig.direction === 'asc') direction = 'desc';
+            else if (sortConfig.direction === 'desc') direction = null;
+        }
+
+        setSortConfig({ key: direction ? key : null, direction });
+
+        if (!direction) {
+            // Reset: Sort by ID (Creation Time)
+            const sortedItems = [...items].sort((a, b) => a.id - b.id);
+            setItems(sortedItems);
+            return;
+        }
+
+        const sortedItems = [...items].sort((a, b) => {
+            let valA = a[key];
+            let valB = b[key];
+
+            // Handle Numbers
+            if (key === 'amount' || key === 'totalWithTax') { // 'amount' is 'Amount (After Tax)' displayed? 
+                // Actually ID 'amount' is usually "Amount (Tax Included)" or "Amount" depending on col def.
+                // User asked for "Money (After Tax)". In our cols:
+                // { id: 'amount', label: '金额（税后）' }
+                valA = parseFloat(valA) || 0;
+                valB = parseFloat(valB) || 0;
+            }
+
+            // Handle Dates
+            if (key === 'date') {
+                valA = new Date(valA || '1970-01-01');
+                valB = new Date(valB || '1970-01-01');
+            }
+
+            // Handle Strings (Category)
+            if (key === 'category') {
+                valA = (valA || '').toString().localeCompare(valB || '', 'zh-CN');
+                return direction === 'asc' ? valA : -valA; // helper for string
+            }
+
+            if (valA < valB) return direction === 'asc' ? -1 : 1;
+            if (valA > valB) return direction === 'asc' ? 1 : -1;
+            return 0;
+        });
+
+        setItems(sortedItems);
+    };
     // formatCurrency, convertPDFToImage are global
 
     // Items Table
@@ -34,11 +86,26 @@ window.ReimbursementTable = ({
                     <table className="table-modern">
                         <thead>
                             <tr>
-                                {columns.filter(c => c.visible).map(col => (
-                                    <th key={col.id} className="font-cn whitespace-nowrap sticky top-0 bg-[#141414] z-10 px-4 py-3">
-                                        {col.label}
-                                    </th>
-                                ))}
+                                {columns.filter(c => c.visible).map(col => {
+                                    const isSortable = ['amount', 'date', 'category'].includes(col.id);
+                                    return (
+                                        <th key={col.id} className="font-cn whitespace-nowrap sticky top-0 bg-[#141414] z-10 px-4 py-3">
+                                            <div className={`flex items-center gap-1 ${isSortable ? 'cursor-pointer hover:text-white group' : ''}`}
+                                                onClick={() => isSortable && handleSort(col.id)}>
+                                                {col.label}
+                                                {isSortable && (
+                                                    <span className={`transition-opacity ${sortConfig.key === col.id ? 'opacity-100 text-yellow-400' : 'opacity-30 group-hover:opacity-70'}`}>
+                                                        {sortConfig.key === col.id ? (
+                                                            sortConfig.direction === 'asc' ? <ChevronDown size={14} className="transform rotate-180" /> : <ChevronDown size={14} />
+                                                        ) : (
+                                                            <ArrowUpDown size={14} />
+                                                        )}
+                                                    </span>
+                                                )}
+                                            </div>
+                                        </th>
+                                    );
+                                })}
                             </tr>
                         </thead>
                         <tbody>

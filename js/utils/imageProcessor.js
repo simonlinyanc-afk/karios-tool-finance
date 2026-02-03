@@ -1,5 +1,7 @@
 // Image Processing Utilities (Single Stream V2)
-// Unified 1800px/0.7 Quality for UI, Storage, and API.
+// Unified 1500px/0.7 Quality for UI, Storage, and API.
+
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
 /**
  * Calculate MD5 Hash of a File (with 20s Timeout)
@@ -31,15 +33,25 @@ async function calculateFileHash(file) {
 }
 
 /**
- * Universal Resize Helper (Canvas) with 20s Timeout
- * Enforces 1800px limit and 0.7 quality by default if not specified
+ * Universal Resize Helper (Canvas) with 40s Timeout
+ * Enforces 1500px limit and 0.7 quality by default
  */
-async function resizeCanvas(source, maxDim = 1800, quality = 0.7, isFile = true) {
+async function resizeCanvas(source, maxDim = 1500, quality = 0.7, isFile = true) {
     return new Promise((resolve) => {
+        let objectUrl = null;
+
+        const cleanup = () => {
+            if (objectUrl) {
+                URL.revokeObjectURL(objectUrl);
+                objectUrl = null;
+            }
+        };
+
         const timer = setTimeout(() => {
-            console.error("ResizeCanvas Timeout (20s)");
+            console.error("ResizeCanvas Timeout (40s)");
+            cleanup();
             resolve(null);
-        }, 20000);
+        }, 40000);
 
         if (!source) {
             console.error('ResizeCanvas: Source is null or undefined');
@@ -70,29 +82,38 @@ async function resizeCanvas(source, maxDim = 1800, quality = 0.7, isFile = true)
                 ctx.drawImage(img, 0, 0, width, height);
 
                 const dataUrl = canvas.toDataURL('image/jpeg', quality);
+
+                // Cleanup
                 clearTimeout(timer);
+                cleanup();
+
                 resolve(dataUrl);
             } catch (e) {
                 console.error("Canvas draw error:", e);
                 clearTimeout(timer);
+                cleanup();
                 resolve(null);
             }
         };
+
         img.onerror = () => {
             console.error('ResizeCanvas: Failed to load image source');
             clearTimeout(timer);
+            cleanup();
             resolve(null);
         };
 
         try {
             if (isFile) {
-                img.src = URL.createObjectURL(source);
+                objectUrl = URL.createObjectURL(source);
+                img.src = objectUrl;
             } else {
                 img.src = source; // Handle Base64 or URL strings
             }
         } catch (e) {
             console.error('ResizeCanvas: Error setting src', e);
             clearTimeout(timer);
+            cleanup();
             resolve(null);
         }
     });
@@ -102,30 +123,36 @@ async function resizeCanvas(source, maxDim = 1800, quality = 0.7, isFile = true)
  * Legacy Resizer Alias
  */
 async function resizeImage(url, quality = 0.7) {
-    return resizeCanvas(url, 1800, quality, false);
+    return resizeCanvas(url, 1500, quality, false);
 }
 
 /**
- * Single Stream Strategy: 1800px, 0.7 Quality
+ * Single Stream Strategy: 1500px, 0.7 Quality
  * Returns unified compressedBase64 for all uses.
  */
 async function processImage(file) {
+    // 0. Breathing Room
+    await sleep(200);
+
     // 1. Calculate Hash
     const fileHash = await calculateFileHash(file);
     const id = Date.now() + Math.random();
 
-    // 2. Resize to 1800px @ 0.7 Quality
-    // Note: PDF conversion might attach _precomputedBase64, we can optionally use it
-    // BUT user requested "Simplify", so passing through standard resize is safer to ensure 1800px/0.7 constraint
-    // unless the precomputed one matches exactly. 
-    // To be safe and compliant with "Single Stream" request: we just run resizeCanvas.
-    // However, if convertPDFToImage already did it, we can use it to save performance.
+    console.log(`[ImageProcessor] Processing ${file.name} (Hash: ${fileHash.substring(0, 8)}...)`);
 
+    // 2. Resize to 1500px @ 0.7 Quality
+    // Note: PDF conversion might attach _precomputedBase64, we can optionally use it
     let compressedBase64;
     if (file._precomputedBase64) {
+        // Assume precomputed is already sized correctly or use it as is
         compressedBase64 = file._precomputedBase64;
     } else {
-        compressedBase64 = await resizeCanvas(file, 1800, 0.7, true);
+        // FIX: Ensure isFile is explicitly true for File objects
+        compressedBase64 = await resizeCanvas(file, 1500, 0.7, true);
+    }
+
+    if (!compressedBase64) {
+        console.error(`[ImageProcessor] Failed to process ${file.name}`);
     }
 
     return {

@@ -44,3 +44,4 @@ window.ZoomIn = (props) => React.createElement(window.Icon, { path: 'm21 21-4.3-
 window.ZoomOut = (props) => React.createElement(window.Icon, { path: 'm21 21-4.3-4.3M11 8a3 3 0 1 0 0 6 3 3 0 0 0 0-6m0-5a8 8 0 1 1-8 8 8 8 0 0 1 8 8M8 11h6', ...props });
 window.Maximize = (props) => React.createElement(window.Icon, { path: 'M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3', ...props });
 window.ExternalLink = (props) => React.createElement(window.Icon, { path: 'M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6M15 3h6v6M10 14L21 3', ...props });
+window.ArrowUpDown = (props) => React.createElement(window.Icon, { path: 'M7 20V4m0 0L3 8m4-4l4 4M17 4v16m0 0l-4-4m4 4l4-4', ...props });

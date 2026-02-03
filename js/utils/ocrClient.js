@@ -1,5 +1,5 @@
 // OCR Client Utilities (Single Stream V2)
-// Unified Architecture: All inputs converted to 1500px/0.8 Compressed Base64
+// Unified Architecture: All inputs converted to 1500px/0.7 Compressed Base64
 
 async function runWithConcurrency(tasks, limit, onProgress) {
     const results = [];
@@ -26,20 +26,32 @@ async function runWithConcurrency(tasks, limit, onProgress) {
     return Promise.all(results);
 }
 
-async function processBatchFiles(files, reimbursementInfo, onProgressCallback) {
+async function processBatchFiles(files, reimbursementInfo, onProgressCallback, onControllerCallback) {
     const fileArray = Array.from(files);
-    console.log(`[OCR] Batch processing ${fileArray.length} files (Single Stream)`);
+    console.log(`[OCR] Batch processing ${fileArray.length} files (Single Stream, 1500px, 60s Timeout)`);
 
     const tasks = fileArray.map((file, i) => ({
         id: file.name,
         task: async () => {
             const isPDF = file.type === 'application/pdf';
+            const controller = new AbortController();
+
+            // Register controller for cancellation
+            if (onControllerCallback) {
+                onControllerCallback(i, controller);
+            }
+
             try {
                 if (onProgressCallback) onProgressCallback(i, 'processing', 10);
-                const result = await window.analyzeInvoiceImage(file, isPDF, reimbursementInfo, i);
+                const result = await window.analyzeInvoiceImage(file, isPDF, reimbursementInfo, i, controller.signal);
                 if (onProgressCallback) onProgressCallback(i, 'completed', 100, result);
                 return result;
             } catch (err) {
+                if (err.name === 'AbortError') {
+                    console.warn(`[OCR] Task ${file.name} Cancelled`);
+                    if (onProgressCallback) onProgressCallback(i, 'cancelled', 0, null);
+                    return null; // Cancelled
+                }
                 console.error(`[FATAL] ${file.name} Processing Error:`, err);
                 const failed = window.createFailedItem(file, isPDF, err, reimbursementInfo, i);
                 if (onProgressCallback) onProgressCallback(i, 'failed', 100, failed);
@@ -50,19 +62,23 @@ async function processBatchFiles(files, reimbursementInfo, onProgressCallback) {
     return window.runWithConcurrency(tasks, 2, null);
 }
 
-async function analyzeInvoiceImage(file, isPDF, reimbursementInfo, index = 0) {
+async function analyzeInvoiceImage(file, isPDF, reimbursementInfo, index = 0, signal = null) {
     let processFile = file;
     let previewUrl = null;
 
-    // 1. PDF Conversion (Single Stream: 1500px, 0.8q)
+    // Check signal before heavy work
+    if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
+
+    // 1. PDF Conversion (Single Stream: 1500px, 0.7q)
     if (isPDF) {
         processFile = await window.convertPDFToImage(file);
         if (!processFile) throw new Error("PDF Conversion Failed (Check libs/cmaps)");
         previewUrl = URL.createObjectURL(processFile);
     }
 
+    if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
+
     // 2. Image Processing (Unified 1500px Resize + Hash)
-    // Note: processImage handles 20s timeout internally
     let imgData;
     try {
         imgData = await window.processImage(processFile);
@@ -75,36 +91,47 @@ async function analyzeInvoiceImage(file, isPDF, reimbursementInfo, index = 0) {
         throw new Error("Image Compression Failed (Timeout or Null)");
     }
 
+    if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
+
     // 3. Cache Check
     if (window.storageRepo && window.storageRepo.findRecordByHash) {
         const cached = await window.storageRepo.findRecordByHash(imgData.fileHash);
         if (cached) {
+            console.log(`[OCR] Cache hit for ${file.name}`);
             const item = cached.snapshot.items[0];
             return { ...item, id: Date.now() + index, file, isPDF, previewUrl: previewUrl || item.previewUrl, isCached: true };
         }
     }
 
-    // 4. API Request (Unified Stream, 20s Timeout)
+    // 4. API Request (Unified Stream, 60s Timeout)
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 20000); // 20s Timeout
+
+    // Merge external signal with internal timeout
+    const timeoutId = setTimeout(() => controller.abort(), 60000);
+
+    // Listen to external signal to abort internal fetch
+    if (signal) {
+        signal.addEventListener('abort', () => {
+            clearTimeout(timeoutId);
+            controller.abort();
+        });
+    }
 
     try {
         const response = await fetch('/api/ocr', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            // Direct Send: The exact same image used for UI/Storage
             body: JSON.stringify({ image: imgData.compressedBase64 }),
             signal: controller.signal
         });
-        clearTimeout(timer);
+        clearTimeout(timeoutId);
 
         if (!response.ok) throw new Error(`API Error: ${response.status}`);
         const data = await response.json();
 
-        // Pass imgData.fileHash so storage can index this exact image
         return window.processOCRResponse(data, file, isPDF, previewUrl, reimbursementInfo, index, imgData.fileHash);
     } catch (e) {
-        if (e.name === 'AbortError') throw new Error("OCR Timeout (20s)");
+        if (e.name === 'AbortError') throw new DOMException("Aborted", "AbortError"); // Normalize
         throw e;
     }
 }

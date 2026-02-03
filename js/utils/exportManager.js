@@ -264,50 +264,83 @@ async function exportToExcel(items, columns, reimbursementInfo, onProgress = () 
  * @param {Array} columns 
  * @param {Object} reimbursementInfo 
  */
+/**
+ * Export to Print (PDF)
+ * Optimized to use IndexedDB and Raw Blobs for speed
+ * @param {Array} items 
+ * @param {Array} columns 
+ * @param {Object} reimbursementInfo 
+ */
 async function exportToPrint(items, columns, reimbursementInfo) {
+    // 1. Open Window Immediately (Bypass Popup Blocker)
+    const printWin = window.open('', '_blank');
+    if (!printWin) {
+        alert('无法启动打印预览，请检查浏览器弹窗设置 (Popup Blocker)');
+        return;
+    }
+
+    // 2. Show Loading State
+    printWin.document.title = "准备打印预览...";
+    printWin.document.body.style.backgroundColor = "#1a1a1a";
+    printWin.document.body.style.color = "#ffffff";
+    printWin.document.body.innerHTML = `
+        <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;font-family:sans-serif;">
+            <div style="width:40px;height:40px;border:4px solid #333;border-top-color:#F5D158;border-radius:50%;animation:spin 1s linear infinite;"></div>
+            <p style="margin-top:20px;font-size:16px;">正在准备文档，请稍候...</p>
+            <style>@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }</style>
+        </div>
+    `;
+
     try {
-        // 1. Process items to convert Blob URLs to Base64
-        // Logic similar to archiveToHistory
+        // 3. Process items - Hydrate Blob URLs to real Blobs for IDB
+        // This ensures the print window has access to the raw file data
         const processedItems = await Promise.all(items.map(async (item) => {
             const newItem = { ...item };
 
-            // Image fields to check
-            const imageFields = ['previewUrl', 'orderImage', 'paymentProof', 'preview', 'orderImageUrl', 'paymentProofUrl'];
-
-            for (const field of imageFields) {
-                const val = newItem[field];
-                if (val && typeof val === 'string' && val.startsWith('blob:')) {
-                    // Check if resizeImage is available (global from finance.js)
-                    if (typeof resizeImage === 'function') {
-                        // Use resizeImage (default quality 0.85) to get Base64
-                        // This solves the Cross-Origin / Blob URL issue for the new window
-                        newItem[field] = await resizeImage(val);
-                    } else {
-                        console.warn('resizeImage not found, image might not print:', val);
+            const ensureBlob = async (urlProp, fileProp) => {
+                const url = newItem[urlProp];
+                if (url && typeof url === 'string' && url.startsWith('blob:')) {
+                    try {
+                        const res = await fetch(url);
+                        const blob = await res.blob();
+                        newItem[fileProp] = blob;
+                    } catch (e) {
+                        console.warn(`Failed to hydrate ${urlProp}`, e);
                     }
                 }
-            }
+            };
+
+            await ensureBlob('previewUrl', 'file');
+            await ensureBlob('orderImage', 'orderImageFile');
+            await ensureBlob('paymentProof', 'paymentProofFile');
+
             return newItem;
         }));
 
         const data = {
-            items: processedItems, // Use processed items with Base64 images
+            items: processedItems, // Use processed items with Blobs
             columns: columns.filter(c => c.visible),
             reimbursementInfo
         };
 
-        // Archive to History (Fire and forget - usage original items)
+        // Archive to History (Runs in background, handles its own persistence)
         if (window.storageRepo && window.storageRepo.archiveToHistory) {
-            window.storageRepo.archiveToHistory(items, reimbursementInfo);
+            window.storageRepo.archiveToHistory(items, reimbursementInfo).catch(console.error);
         }
 
-        localStorage.setItem('printData', JSON.stringify(data));
-
-        const printWin = window.open('print.html', '_blank');
-        if (!printWin) {
-            alert('无法启动打印预览，请检查浏览器弹窗设置');
+        // 4. Save to IndexedDB
+        if (window.storageRepo && window.storageRepo.savePrintJob) {
+            const jobId = await window.storageRepo.savePrintJob(data);
+            printWin.location.href = `print.html?jobId=${jobId}`;
+        } else {
+            console.warn('StorageRepo missing, trying legacy localStorage');
+            localStorage.setItem('printData', JSON.stringify(data));
+            printWin.location.href = 'print.html';
         }
+
     } catch (e) {
+        // Handle Error
+        printWin.close();
         alert('准备打印数据失败: ' + e.message);
         console.error(e);
     }

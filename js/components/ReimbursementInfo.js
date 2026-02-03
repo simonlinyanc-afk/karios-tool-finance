@@ -8,20 +8,24 @@ window.ReimbursementInfo = ({
     const { Settings, Clock } = window;
 
     return (
-        <div className="lg:col-span-2 card-modern rounded-xl p-6">
+        <div className="lg:col-span-2 card-modern rounded-xl p-6 relative">
             <div className="flex items-center justify-between mb-4 pb-3 border-b border-[#2a2a2a]">
                 <div className="flex items-center gap-2">
                     <Settings size={18} className="text-yellow-400" />
                     <span className="font-semibold text-sm font-cn">报销单信息</span>
                     <span className="text-xs text-gray-500 font-en">REIMBURSEMENT INFO</span>
                 </div>
+
                 <div className="flex items-center gap-2">
+                    {/* Version History Button */}
                     <button
-                        onClick={handleSaveProject}
-                        className="flex items-center gap-1.5 px-3 py-1.5 bg-yellow-400 hover:bg-yellow-500 text-black text-xs font-bold rounded transition-colors font-cn shadow-sm"
+                        onClick={() => setShowHistory(true)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-[#2a2a2a] hover:bg-[#333] text-gray-200 hover:text-white border border-gray-700 hover:border-gray-500 text-xs font-medium rounded transition-colors font-cn mr-2"
                     >
-                        SAVE PROJECT
+                        <Clock size={14} />
+                        <span>版本记录</span>
                     </button>
+
                     <button
                         onClick={handleCleanProject}
                         className="flex items-center gap-1.5 px-3 py-1.5 border border-gray-600 text-gray-400 hover:text-white hover:border-white text-xs font-bold rounded transition-colors font-en"
@@ -29,11 +33,10 @@ window.ReimbursementInfo = ({
                         CLEAN
                     </button>
                     <button
-                        onClick={() => setShowHistory(true)}
-                        className="ml-2 text-gray-500 hover:text-yellow-400 transition-colors flex items-center gap-1.5 text-xs font-cn"
+                        onClick={handleSaveProject}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-yellow-400 hover:bg-yellow-500 text-black text-xs font-bold rounded transition-colors font-cn shadow-sm"
                     >
-                        <Clock size={14} />
-                        <span>版本记录</span>
+                        SAVE
                     </button>
                 </div>
             </div>

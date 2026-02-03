@@ -244,22 +244,48 @@
         </div>
     </div>
 
+    <!-- Dexie for IndexedDB -->
+    <script src="https://unpkg.com/dexie/dist/dexie.js"></script>
     <script>
-        // 从 localStorage 读取数据
-        function loadPrintData() {
+        // Init Database (Read-only access pattern mostly, but need schema to match)
+        const db = new Dexie('KairosDB');
+        db.version(1).stores({ drafts: '++id, timestamp', history: '++id, timestamp, total, count' });
+        db.version(2).stores({ history: '++id, timestamp, total, count, fileHashIndex' });
+        db.version(3).stores({ templates: '++id, timestamp, name' });
+        db.version(4).stores({ printJobs: '++id, timestamp' }); // Match current schema
+
+        // 从 URL 获取 jobId
+        function getJobId() {
+            const params = new URLSearchParams(window.location.search);
+            return params.get('jobId') ? Number(params.get('jobId')) : null;
+        }
+
+        // 加载数据
+        async function loadPrintData() {
             try {
+                const jobId = getJobId();
+
+                if (jobId) {
+                    // Try Dexie First (IndexedDB)
+                    console.log('Loading print job from DB:', jobId);
+                    const record = await db.printJobs.get(jobId);
+                    if (record && record.data) {
+                        return record.data;
+                    }
+                }
+
+                // Fallback to LocalStorage
+                console.log('Loading print job from LocalStorage');
                 const dataStr = localStorage.getItem('printData');
                 if (!dataStr) {
                     throw new Error('未找到打印数据。请从主页面重新导出。');
                 }
-
                 const data = JSON.parse(dataStr);
 
                 // 验证数据
                 if (!data.items || !data.reimbursementInfo || !data.columns) {
                     throw new Error('数据格式不正确');
                 }
-
                 return data;
             } catch (error) {
                 console.error('加载数据失败:', error);
@@ -297,10 +323,21 @@
 
                     // 图片列
                     if (col.id === 'preview' || col.id === 'orderImage' || col.id === 'paymentProof') {
-                        const src = item[col.id] || (col.id === 'preview' && item.previewUrl);
-                        if (src) {
+                        let content;
+
+                        // Prefer the raw Blob (File) from IndexedDB if available
+                        if (col.id === 'preview') content = item.file || item.previewUrl;
+                        else if (col.id === 'orderImage') content = item.orderImageFile || item.orderImage;
+                        else if (col.id === 'paymentProof') content = item.paymentProofFile || item.paymentProof;
+
+                        // Create fresh Object URL from Blob
+                        if (content instanceof Blob) {
+                            content = URL.createObjectURL(content);
+                        }
+
+                        if (content && typeof content === 'string') {
                             const img = document.createElement('img');
-                            img.src = src;
+                            img.src = content;
                             img.alt = col.label;
                             td.appendChild(img);
                         }
@@ -339,10 +376,10 @@
         }
 
         // 初始化
-        window.addEventListener('load', function () {
+        window.addEventListener('load', async function () {
             try {
                 // 读取数据
-                const data = loadPrintData();
+                const data = await loadPrintData();
 
                 // 渲染页面
                 renderPage(data);
@@ -357,9 +394,6 @@
                 setTimeout(function () {
                     window.print();
                 }, 800);
-
-                // 清理 localStorage（可选）
-                // localStorage.removeItem('printData');
 
             } catch (error) {
                 // 显示错误
