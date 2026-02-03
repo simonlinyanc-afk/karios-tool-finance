@@ -30,12 +30,12 @@ window.ReimbursementTable = ({
     if (items.length > 0) {
         return (
             <div className="card-modern rounded-xl overflow-hidden">
-                <div className="overflow-x-auto">
+                <div className="overflow-x-auto max-h-[600px] overflow-y-auto custom-scrollbar">
                     <table className="table-modern">
                         <thead>
                             <tr>
                                 {columns.filter(c => c.visible).map(col => (
-                                    <th key={col.id} className="font-cn whitespace-nowrap">
+                                    <th key={col.id} className="font-cn whitespace-nowrap sticky top-0 bg-[#141414] z-10 px-4 py-3">
                                         {col.label}
                                     </th>
                                 ))}

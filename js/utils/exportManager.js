@@ -96,28 +96,56 @@ async function exportToExcel(items, columns, reimbursementInfo, onProgress = () 
                     totalImages++;
                     imageTasks.push((async () => {
                         try {
-                            // Ensure resizeImage is available (from finance.js)
-                            if (typeof resizeImage !== 'function') {
-                                console.error('resizeImage function not found');
-                                return;
+                            // OPTIMIZATION: Check if we can skip resize
+                            // If item has a flag or if we detect it's already a specific 'compressedBase64'
+                            // For now, if it is a data URL, we trust it if generic optimization is not strictly enforced,
+                            // BUT standard is 0.6.
+
+                            // User Instruction: "If passed items have compressedBase64, use it"
+                            // Use the property directly if available in the item context?
+                            // formatting: items[index].compressedBase64 maps to 'preview'?
+                            // Let's check item directly from the main array since we have access via closure 'item'
+
+                            let finalBase64 = null;
+
+                            // Check for pre-calculated compressed version (from Dual Stream or History)
+                            // We need to know WHICH column this maps the specific image to.
+                            // The task says "tell exportManager... if input items have compressedBase64..."
+                            // Assuming 'compressedBase64' corresponds to the main 'preview' image.
+
+                            if (col.id === 'preview' && item.compressedBase64) {
+                                finalBase64 = item.compressedBase64;
+                            }
+                            // Check if it's already a data string (History items are Base64)
+                            // And if we want to avoid re-compression (Costly!)
+                            else if (typeof imageUrl === 'string' && imageUrl.startsWith('data:image')) {
+                                // It is likely already compressed from History or Dual Stream
+                                finalBase64 = imageUrl;
+                            }
+                            else {
+                                // Ensure resizeImage is available (from finance.js)
+                                if (typeof resizeImage !== 'function') {
+                                    console.error('resizeImage function not found');
+                                    return;
+                                }
+                                // Use 0.6 quality for Excel optimization
+                                finalBase64 = await resizeImage(imageUrl, 0.6);
                             }
 
-                            // Use 0.6 quality for Excel optimization
-                            const base64 = await resizeImage(imageUrl, 0.6);
-                            if (base64) {
+                            if (finalBase64) {
                                 // Measure image dimensions
                                 const dimensions = await new Promise((resolve) => {
                                     const img = new Image();
                                     img.onload = () => resolve({ w: img.width, h: img.height });
                                     img.onerror = () => resolve({ w: 100, h: 100 }); // Default
-                                    img.src = base64;
+                                    img.src = finalBase64;
                                     // Safety timeout
                                     setTimeout(() => resolve({ w: 100, h: 100 }), 500);
                                 });
 
                                 if (!imageMap[index]) imageMap[index] = {};
                                 imageMap[index][col.id] = {
-                                    base64,
+                                    base64: finalBase64,
                                     width: dimensions.w,
                                     height: dimensions.h
                                 };

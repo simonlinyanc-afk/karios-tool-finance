@@ -39,3 +39,7 @@ window.Clock = (props) => React.createElement(window.Icon, { path: 'M12 22c5.523
 window.Trash2 = (props) => React.createElement(window.Icon, { path: 'M3 6h18M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2M10 11v6M14 11v6', ...props });
 window.Check = (props) => React.createElement(window.Icon, { path: 'M20 6 9 17l-5-5', ...props });
 window.Edit2 = (props) => React.createElement(window.Icon, { path: 'M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z', ...props });
+window.Minus = (props) => React.createElement(window.Icon, { path: 'M5 12h14', ...props });
+window.ZoomIn = (props) => React.createElement(window.Icon, { path: 'm21 21-4.3-4.3M11 8a3 3 0 1 0 0 6 3 3 0 0 0 0-6m0-5a8 8 0 1 1-8 8 8 8 0 0 1 8 8M11 8v6M8 11h6', ...props });
+window.ZoomOut = (props) => React.createElement(window.Icon, { path: 'm21 21-4.3-4.3M11 8a3 3 0 1 0 0 6 3 3 0 0 0 0-6m0-5a8 8 0 1 1-8 8 8 8 0 0 1 8 8M8 11h6', ...props });
+window.Maximize = (props) => React.createElement(window.Icon, { path: 'M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3', ...props });

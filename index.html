@@ -31,7 +31,7 @@
   <script src="/libs/pdf.min.js"></script>
   <script>
     // Configure PDF.js worker
-    pdfjsLib.GlobalWorkerOptions.workerSrc = '/libs/pdf.worker.min.js';
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'libs/pdf.worker.min.js';
   </script>
 
   <!-- ExcelJS for Excel Export with Image Support -->
@@ -39,8 +39,13 @@
 
   <!-- Local Storage (Dexie.js) -->
   <script src="https://unpkg.com/dexie/dist/dexie.js"></script>
+  <!-- Spark-MD5 for File Hashing -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/spark-md5/3.0.2/spark-md5.min.js"></script>
 
   <!-- Global Utilities (Must be loaded after libraries) -->
+  <!-- Global Utilities (Must be loaded after libraries) -->
+  <script src="js/utils/imageProcessor.js"></script>
+  <script src="js/utils/ocrClient.js"></script>
   <script src="js/utils/finance.js"></script>
   <script src="js/utils/exportManager.js"></script>
   <script src="js/utils/storageRepository.js"></script>
@@ -55,6 +60,7 @@
   <script type="text/babel" src="js/components/SystemModals.js"></script>
   <script type="text/babel" src="js/components/ReimbursementTable.js"></script>
   <script type="text/babel" src="js/components/HistorySidebar.js"></script>
+  <script type="text/babel" src="js/components/ImagePreviewModal.js"></script>
 
   <!-- External Stylesheet -->
   <link rel="stylesheet" href="css/style.css">
@@ -66,15 +72,13 @@
   <script type="text/babel">
     const { useState, useEffect } = React;
 
-    // Access global Icons (loaded from icons.js)
+    // Access global Icons and Components
     const {
-      Icon, Upload, FileText, Settings, Eye, User, Briefcase, Calendar, Download, X, ChevronDown, ChevronUp, Plus, Image, RefreshCw, Clock, Trash2, Check
-    } = window;
-
-    // Components from window
-    const {
+      Icon, Upload, FileText, Settings, Eye, User, Briefcase, Calendar, Download, X,
+      ChevronDown, ChevronUp, Plus, Image, RefreshCw, Clock, Trash2, Check,
+      Minus, Maximize, ZoomIn, ZoomOut,
       AppHeader, UploadZone, ReimbursementInfo, ExportPreviewModal, SystemModals,
-      ReimbursementTable, HistorySidebar, PDFTemplate
+      ReimbursementTable, HistorySidebar, PDFTemplate, ImagePreviewModal
     } = window;
 
     const App = () => {
@@ -271,97 +275,58 @@
         }
       };
 
-      // File Upload Handler
+      // Handle Processed Files (New Pipeline v1.2.0)
       const handleFiles = async (files) => {
         setIsProcessing(true);
-        const newItems = [];
-        const filesArray = Array.from(files);
-
-        const queue = filesArray.map((file, index) => ({
-          id: Date.now() + index,
+        const queueItems = Array.from(files).map(file => ({
+          id: file.name + Date.now(),
           name: file.name,
-          status: 'waiting',
+          status: 'processing',
           progress: 0
         }));
-        setProcessingQueue(queue);
+        setProcessingQueue(prev => [...prev, ...queueItems]);
 
-        for (let i = 0; i < filesArray.length; i++) {
-          const file = filesArray[i];
-          const queueItem = queue[i];
-          const isPDF = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
-
-          setProcessingQueue(prev => prev.map(item =>
-            item.id === queueItem.id ? { ...item, status: 'processing', progress: 50 } : item
-          ));
-
-          try {
-            // If it's a PDF, convert to image first
-            let fileToProcess = file;
-            let convertedImageUrl = null;
-
-            if (isPDF) {
-              const convertedFile = await convertPDFToImage(file);
-              if (convertedFile) {
-                fileToProcess = convertedFile;
-                convertedImageUrl = URL.createObjectURL(convertedFile);
-              }
-            }
-
-            // Convert image to base64 for OCR
-            const reader = new FileReader();
-            const imageBase64 = await new Promise((resolve, reject) => {
-              reader.onload = () => resolve(reader.result);
-              reader.onerror = reject;
-              reader.readAsDataURL(fileToProcess);
-            });
-
-            // Call serverless OCR function
-            const response = await fetch('/api/ocr', {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json'
-              },
-              body: JSON.stringify({
-                image: imageBase64
-              })
-            });
-
-            if (!response.ok) {
-              throw new Error(`HTTP error! status: ${response.status}`);
-            }
-
-            const data = await response.json();
-
-            // Use processing logic from utils.js
-            const newItem = processOCRResponse(data, file, isPDF, convertedImageUrl, reimbursementInfo, i);
-            newItems.push(newItem);
-
-            setProcessingQueue(prev => prev.map(item =>
-              item.id === queueItem.id ? { ...item, status: 'completed', progress: 100 } : item
-            ));
-
-          } catch (error) {
-            console.error(`Error processing ${file.name}:`, error);
-            setProcessingQueue(prev => prev.map(item =>
-              item.id === queueItem.id ? { ...item, status: 'failed', progress: 100 } : item
-            ));
-
-            // Use failure logic from utils.js
-            newItems.push(createFailedItem(file, isPDF, error, reimbursementInfo, i));
+        try {
+          // Use global parallel processing logic from finance.js
+          if (!window.processBatchFiles) {
+            throw new Error("processBatchFiles core logic not found");
           }
+
+          const newItems = await window.processBatchFiles(files, reimbursementInfo, (index, status, progress, result) => {
+            // Update queue status for the specific file
+            const queueItem = queueItems[index];
+            if (queueItem) {
+              setProcessingQueue(prev => prev.map(q =>
+                q.id === queueItem.id ? { ...q, status: status, progress: progress } : q
+              ));
+            }
+          });
+
+          // Check for Cached Items (Flash Match)
+          const cachedCount = newItems.filter(i => i.isCached).length;
+          if (cachedCount > 0) {
+            showToast(`⚡ ${cachedCount} 个文件已秒传 (历史命中)`, "success");
+          }
+
+          // Remove default row if needed
+          const filteredItems = items.filter(item => {
+            if (item.id === 1 && !item.date && !item.description && item.amount === 0) return false;
+            return true;
+          });
+
+          setItems([...filteredItems, ...newItems]);
+
+          // Update Queue Status
+          setProcessingQueue(prev => prev.map(q => ({ ...q, status: 'completed', progress: 100 })));
+
+        } catch (error) {
+          console.error("Batch Processing Error:", error);
+          showToast("处理文件时发生错误", "error");
+          setProcessingQueue(prev => prev.map(q => ({ ...q, status: 'failed', progress: 100 })));
+        } finally {
+          setIsProcessing(false);
+          setTimeout(() => setProcessingQueue([]), 2000);
         }
-
-        // Remove default row (id: 1) if it exists and is empty
-        const filteredItems = items.filter(item => {
-          if (item.id === 1 && !item.date && !item.description && item.amount === 0) {
-            return false; // Remove default empty row
-          }
-          return true;
-        });
-
-        setItems([...filteredItems, ...newItems]);
-        setIsProcessing(false);
-        setTimeout(() => setProcessingQueue([]), 3000);
       };
 
       // Drag & Drop
@@ -618,23 +583,13 @@
             </div>
           )}
 
-          {/* PDF Preview Modal - Kept inline as it wasn't mentioned for extraction */}
-          {pdfPreviewUrl && (
-            <div
-              className="fixed inset-0 bg-black/90 z-50 flex items-center justify-center p-6"
-              onClick={() => setPdfPreviewUrl(null)}
-            >
-              <div className="relative w-full max-w-4xl max-h-[90vh] bg-[#141414] rounded-xl overflow-hidden">
-                <div className="flex justify-between items-center p-4 border-b border-[#2a2a2a]">
-                  <span className="font-semibold font-cn">PDF 预览</span>
-                  <button onClick={() => setPdfPreviewUrl(null)} className="p-2 hover:bg-[#2a2a2a] rounded">
-                    <X size={20} />
-                  </button>
-                </div>
-                <embed src={pdfPreviewUrl} type="application/pdf" className="w-full h-[80vh]" />
-              </div>
-            </div>
-          )}
+
+          {/* PDF/Image Preview Modal */}
+          <ImagePreviewModal
+            previewUrl={pdfPreviewUrl}
+            onClose={() => setPdfPreviewUrl(null)}
+            items={items}
+          />
 
         </div>
       );
