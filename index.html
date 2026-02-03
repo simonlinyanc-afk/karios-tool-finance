@@ -5,6 +5,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Yellow Bird Finance · Kairos</title>
+  <link rel="icon" href="favicon.ico" type="image/x-icon">
 
   <!-- Google Fonts: Source Han Sans (思源黑体) & Plus Jakarta Sans -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -54,6 +55,7 @@
   <!-- Components -->
   <script type="text/babel" src="js/components/PDFTemplate.js"></script>
   <script type="text/babel" src="js/components/AppHeader.js"></script>
+  <script type="text/babel" src="js/components/VersionModal.js"></script>
   <script type="text/babel" src="js/components/UploadZone.js"></script>
   <script type="text/babel" src="js/components/ReimbursementInfo.js"></script>
   <script type="text/babel" src="js/components/ExportPreviewModal.js"></script>
@@ -76,9 +78,9 @@
     const {
       Icon, Upload, FileText, Settings, Eye, User, Briefcase, Calendar, Download, X,
       ChevronDown, ChevronUp, Plus, Image, RefreshCw, Clock, Trash2, Check,
-      Minus, Maximize, ZoomIn, ZoomOut,
+      Minus, Maximize, ZoomIn, ZoomOut, ExternalLink,
       AppHeader, UploadZone, ReimbursementInfo, ExportPreviewModal, SystemModals,
-      ReimbursementTable, HistorySidebar, PDFTemplate, ImagePreviewModal
+      ReimbursementTable, HistorySidebar, PDFTemplate, ImagePreviewModal, VersionModal
     } = window;
 
     const App = () => {
@@ -114,7 +116,26 @@
         return !localStorage.getItem('tutorialCompleted');
       });
 
+      const [versionData, setVersionData] = useState(null);
+      const [showVersionModal, setShowVersionModal] = useState(false);
+
       const [pdfItems, setPdfItems] = useState(null);
+
+      // Fetch Version Data
+      useEffect(() => {
+        fetch('data/version.json')
+          .then(res => res.json())
+          .then(data => {
+            setVersionData(data);
+            const lastSeenVersion = localStorage.getItem('last_seen_version');
+            // Only auto-show if version has changed AND data is valid
+            if (data && data.version && lastSeenVersion !== data.version) {
+              setShowVersionModal(true);
+              localStorage.setItem('last_seen_version', data.version);
+            }
+          })
+          .catch(err => console.error("Failed to load version info", err));
+      }, []);
 
       const closeTutorial = () => {
         localStorage.setItem('tutorialCompleted', 'true');
@@ -485,14 +506,31 @@
 
             {/* Footer */}
             <footer className="mt-8 pb-6 text-center text-xs text-gray-600">
-              <button
-                onClick={() => setShowTutorial(true)}
-                className="text-gray-500 hover:text-gray-400 transition mb-3 block mx-auto font-cn"
-              >
-                查看教程
-              </button>
+              <div className="flex justify-center items-center gap-4 mb-3 font-cn">
+                <button
+                  onClick={() => setShowTutorial(true)}
+                  className="text-gray-500 hover:text-gray-400 transition"
+                >
+                  查看教程
+                </button>
+                <span className="text-gray-700">|</span>
+                <a
+                  href="https://xcn6yt0gdphe.feishu.cn/share/base/form/shrcnvbE8yRI0valNDiuKttYBxb"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-gray-500 hover:text-yellow-500 transition"
+                >
+                  问题反馈
+                </a>
+              </div>
               <div className="flex items-center justify-center gap-2 mb-1">
-                <span>v1.0.1-alpha</span>
+                <span
+                  className={`transition-colors ${versionData ? 'cursor-pointer hover:text-yellow-500' : ''}`}
+                  onClick={() => versionData && setShowVersionModal(true)}
+                  title="点击查看版本更新"
+                >
+                  v{versionData ? versionData.version : '...'}
+                </span>
                 <span>•</span>
                 <span>© Kairos Studio 2026</span>
               </div>
@@ -520,6 +558,12 @@
             setIsProcessing={setIsProcessing}
           />
           <SystemModals.ExportProgressModal exportProgress={exportProgress} />
+
+          <VersionModal
+            isOpen={showVersionModal}
+            onClose={() => setShowVersionModal(false)}
+            versionData={versionData}
+          />
 
           {/* Export Preview Modal */}
           <ExportPreviewModal

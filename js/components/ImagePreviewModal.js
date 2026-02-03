@@ -5,10 +5,13 @@ const ZoomableImage = ({ src }) => {
     const { Plus, Minus, Maximize } = window;
     const containerRef = useRef(null);
     const [state, setState] = useState({ scale: 1, x: 0, y: 0, isDragging: false, startX: 0, startY: 0 });
+    const [hasError, setHasError] = useState(false);
 
     // Reset state when src changes
     useEffect(() => {
+        console.log("ZoomableImage: src changed", src);
         setState({ scale: 1, x: 0, y: 0, isDragging: false, startX: 0, startY: 0 });
+        setHasError(false);
     }, [src]);
 
     const updateState = (updates) => setState(prev => ({ ...prev, ...updates }));
@@ -36,24 +39,50 @@ const ZoomableImage = ({ src }) => {
     return (
         <div
             ref={containerRef}
-            className="w-full h-full relative overflow-hidden bg-[#0a0a0a] flex items-center justify-center cursor-grab active:cursor-grabbing select-none"
+            className="w-full h-full relative overflow-hidden flex items-center justify-center cursor-grab active:cursor-grabbing select-none"
+            style={{
+                backgroundImage: `linear-gradient(45deg, #1a1a1a 25%, transparent 25%),
+                                 linear-gradient(-45deg, #1a1a1a 25%, transparent 25%),
+                                 linear-gradient(45deg, transparent 75%, #1a1a1a 75%),
+                                 linear-gradient(-45deg, transparent 75%, #1a1a1a 75%)`,
+                backgroundSize: '20px 20px',
+                backgroundPosition: '0 0, 0 10px, 10px -10px, -10px 0px',
+                backgroundColor: '#0a0a0a'
+            }}
             onWheel={handleWheel}
             onMouseDown={handleMouseDown}
             onMouseMove={handleMouseMove}
             onMouseUp={handleMouseUp}
             onMouseLeave={handleMouseUp}
         >
-            <img
-                src={src}
-                draggable={false}
-                className="w-full h-full object-contain pointer-events-none"
-                style={{
-                    transform: `translate(${state.x}px, ${state.y}px) scale(${state.scale})`,
-                    transition: state.isDragging ? 'none' : 'transform 0.1s ease-out',
-                    transformOrigin: 'center',
-                    willChange: 'transform'
-                }}
-            />
+            {hasError ? (
+                <div className="text-gray-500 flex flex-col items-center gap-2">
+                    <span className="text-4xl">⚠️</span>
+                    <span>无法加载图片</span>
+                    <span className="text-xs opacity-50 font-mono max-w-xs truncate">{src}</span>
+                </div>
+            ) : (
+                <img
+                    src={src}
+                    draggable={false}
+                    className="w-full h-full object-contain pointer-events-none block"
+                    style={{
+                        transform: `translate(${state.x}px, ${state.y}px) scale(${state.scale})`,
+                        transition: state.isDragging ? 'none' : 'transform 0.1s ease-out',
+                        transformOrigin: 'center',
+                        willChange: 'transform',
+                        maxWidth: '100%',
+                        maxHeight: '100%'
+                    }}
+                    onLoad={(e) => {
+                        console.log("Image loaded successfully:", src, e.target.naturalWidth, e.target.naturalHeight);
+                    }}
+                    onError={(e) => {
+                        console.error("Image load error:", src, e);
+                        setHasError(true);
+                    }}
+                />
+            )}
 
             {/* Controls */}
             <div className="absolute bottom-6 left-1/2 -translate-x-1/2 bg-black/60 backdrop-blur-md border border-white/10 rounded-full flex gap-2 p-1.5 z-10 shadow-xl items-center" onClick={e => e.stopPropagation()}>
