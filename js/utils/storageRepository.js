@@ -1,5 +1,5 @@
 /**
- * Storage Repository for Yellow Bird Finance
+ * Storage Repository for Kairos Finance
  * Uses Dexie.js for IndexedDB management
  * Handles Drafts, Export History, and Print Jobs
  * Refactored: 2026-02-04 (Strict Decoupling & Modularization & IIFE)
@@ -28,6 +28,64 @@
     db.version(4).stores({
         printJobs: '++id, timestamp'
     });
+
+    db.version(5).stores({
+        drafts: '++id, timestamp',
+        history: '++id, timestamp, total, count, fileHashIndex',
+        templates: '++id, timestamp, name',
+        printJobs: '++id, timestamp',
+        ocrCache: 'fileHash, updatedAt, modelVersion, promptVersion'
+    });
+
+    function _normalizeItem(item) {
+        if (!item) return item;
+        if (window.normalizeInvoiceItem) {
+            return window.normalizeInvoiceItem(item, {
+                recognitionSource: item.recognitionSource || 'manual'
+            });
+        }
+        return item;
+    }
+
+    function _normalizeItems(items) {
+        if (!Array.isArray(items)) return [];
+        return items.map(_normalizeItem);
+    }
+
+    function _normalizeDraftRecord(record) {
+        if (!record) return null;
+        return {
+            ...record,
+            items: _normalizeItems(record.items)
+        };
+    }
+
+    function _normalizeHistoryRecord(record) {
+        if (!record) return null;
+
+        if (record.snapshot) {
+            return {
+                ...record,
+                snapshot: {
+                    ...record.snapshot,
+                    items: _normalizeItems(record.snapshot.items)
+                }
+            };
+        }
+
+        return {
+            ...record,
+            items: _normalizeItems(record.items)
+        };
+    }
+
+    function _normalizePrintPayload(data) {
+        if (!data) return data;
+        return {
+            ...data,
+            items: _normalizeItems(data.items)
+        };
+    }
 
 
     // ==========================================
@@ -103,7 +161,7 @@
         if (!items || !Array.isArray(items)) return [];
 
         return Promise.all(items.map(async (item) => {
-            const newItem = { ...item };
+            const newItem = _normalizeItem({ ...item });
 
             // Process standard image fields
             newItem.previewUrl = await _processImageField(newItem.previewUrl, contextTag);
@@ -141,7 +199,7 @@
 
     async function getLatestDraft() {
         try {
-            return await db.drafts.get(1);
+            return _normalizeDraftRecord(await db.drafts.get(1));
         } catch (e) { return null; }
     }
 
@@ -205,7 +263,8 @@
 
     async function getHistoryRecords() {
         try {
-            return await db.history.orderBy('timestamp').reverse().toArray();
+            const records = await db.history.orderBy('timestamp').reverse().toArray();
+            return records.map(_normalizeHistoryRecord);
         } catch (error) {
             console.error('Failed to fetch history', error);
             return [];
@@ -214,7 +273,8 @@
 
     async function findRecordByHash(hash) {
         if (!hash) return null;
-        return await db.history.where('fileHashIndex').equals(hash).first();
+        const record = await db.history.where('fileHashIndex').equals(hash).first();
+        return _normalizeHistoryRecord(record);
     }
 
     async function deleteHistoryItem(id) {
@@ -246,7 +306,7 @@
 
             const id = await db.printJobs.add({
                 timestamp: Date.now(),
-                data: data
+                data: _normalizePrintPayload(data)
             });
             return id;
         } catch (error) {
@@ -258,8 +318,35 @@
     async function getPrintJob(id) {
         try {
             const record = await db.printJobs.get(id);
-            return record ? record.data : null;
+            return record ? _normalizePrintPayload(record.data) : null;
         } catch (e) { return null; }
+    }
+
+    async function getCachedOcrResult(fileHash) {
+        if (!fileHash) return null;
+
+        try {
+            return await db.ocrCache.get(fileHash);
+        } catch (error) {
+            console.error('Failed to fetch OCR cache', error);
+            return null;
+        }
+    }
+
+    async function saveCachedOcrResult(fileHash, result, meta = {}) {
+        if (!fileHash || !result) return;
+
+        try {
+            await db.ocrCache.put({
+                fileHash,
+                updatedAt: Date.now(),
+                result,
+                modelVersion: meta.modelVersion || '',
+                promptVersion: meta.promptVersion || ''
+            });
+        } catch (error) {
+            console.error('Failed to save OCR cache', error);
+        }
     }
 
     async function autoCleanup30Days() {
@@ -295,7 +382,9 @@
         autoCleanup30Days,
         savePrintJob,
         getPrintJob,
-        updateHistoryTitle
+        updateHistoryTitle,
+        getCachedOcrResult,
+        saveCachedOcrResult
     };
 
 })();
