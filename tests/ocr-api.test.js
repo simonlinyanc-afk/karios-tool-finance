@@ -37,6 +37,22 @@ function serializeLogEntries(entries) {
   }).join('\n');
 }
 
+function createNeedsReviewEnvelope() {
+  return {
+    status: 'needs_review',
+    data: {
+      date: '',
+      invoiceNumber: 'INV-REVIEW',
+      amount: 106,
+      tax: 6,
+      subtotal: 100,
+      totalWithTax: 106
+    },
+    warnings: [{ code: 'missing_date', field: 'date', message: '发票日期缺失' }],
+    meta: { model: 'review-test-model', fallbackUsed: true, latencyMs: 25 }
+  };
+}
+
 test('Vercel OCR handler passes high_accuracy mode to the shared service', async () => {
   const calls = [];
   const handler = createOcrHandler({
@@ -80,6 +96,23 @@ test('Vercel OCR handler defaults missing mode to normal', async () => {
   await handler(req, createResponseRecorder());
 
   assert.equal(calls[0].mode, 'normal');
+});
+
+test('Vercel OCR handler passes the formal service envelope through unchanged', async () => {
+  const envelope = createNeedsReviewEnvelope();
+  const handler = createOcrHandler({
+    ocrService: async () => envelope
+  });
+  const response = createResponseRecorder();
+
+  await handler({
+    method: 'POST',
+    body: { image: 'data:image/png;base64,Zm9v' }
+  }, response);
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.payload, envelope);
+  assert.deepEqual(response.payload, createNeedsReviewEnvelope());
 });
 
 test('Vercel OCR handler maps service errors to safe stable responses', async () => {

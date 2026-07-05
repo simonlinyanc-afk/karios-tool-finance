@@ -44,6 +44,22 @@ function serializeLogEntries(entries) {
   }).join('\n');
 }
 
+function createNeedsReviewEnvelope() {
+  return {
+    status: 'needs_review',
+    data: {
+      date: '',
+      invoiceNumber: 'INV-REVIEW',
+      amount: 106,
+      tax: 6,
+      subtotal: 100,
+      totalWithTax: 106
+    },
+    warnings: [{ code: 'missing_date', field: 'date', message: '发票日期缺失' }],
+    meta: { model: 'review-test-model', fallbackUsed: true, latencyMs: 25 }
+  };
+}
+
 test('self-hosted OCR passes high_accuracy mode to the shared service', async () => {
   const calls = [];
   const server = createAppServer({
@@ -80,6 +96,20 @@ test('self-hosted OCR defaults missing mode to normal', async () => {
 
   assert.equal(response.statusCode, 200);
   assert.equal(calls[0].mode, 'normal');
+});
+
+test('self-hosted OCR dispatch passes the formal service envelope through unchanged', async () => {
+  const envelope = createNeedsReviewEnvelope();
+  const server = createAppServer({
+    ocrService: async () => envelope
+  });
+
+  const response = await dispatchOcrRequest(server, {
+    image: 'data:image/png;base64,Zm9v'
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(response.payload, envelope);
 });
 
 test('self-hosted OCR returns safe stable service errors without sensitive logs', async () => {

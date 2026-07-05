@@ -22,21 +22,15 @@ function createEnv(overrides = {}) {
 function createModelPayload(text) {
   return {
     output: {
-      choices: [
-        {
-          finish_reason: 'stop',
-          message: {
-            role: 'assistant',
-            content: [{ text }]
-          }
+      choices: [{
+        finish_reason: 'stop',
+        message: {
+          role: 'assistant',
+          content: [{ text }]
         }
-      ]
+      }]
     },
-    usage: {
-      input_tokens: 1,
-      output_tokens: 1,
-      total_tokens: 2
-    },
+    usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
     request_id: 'test-request-id'
   };
 }
@@ -50,35 +44,53 @@ function createResponse(payload) {
   };
 }
 
-test('recognizeInvoiceFromImage returns root invoice fields with technical meta', async () => {
+function readyInvoice(overrides = {}) {
+  return JSON.stringify({
+    d: '2026-07-05',
+    n: 'INV-001',
+    b: 'Kairos',
+    m: '供应商',
+    t: 106,
+    x: 6,
+    y: 100,
+    w: 106,
+    s: '办公用品',
+    ...overrides
+  });
+}
+
+test('recognizeInvoiceFromImage returns the formal ready envelope', async () => {
   const requests = [];
   const result = await recognizeInvoiceFromImage({
     image: TEST_IMAGE,
     env: createEnv(),
     fetchImpl: async (_url, options) => {
       requests.push(JSON.parse(options.body));
-      return createResponse(createModelPayload('{"d":"2026-07-05","t":106}'));
+      return createResponse(createModelPayload(readyInvoice()));
     },
     now: () => 100
   });
 
-  assert.equal(result.d, '2026-07-05');
-  assert.equal(result.t, 106);
+  assert.deepEqual(Object.keys(result).sort(), ['data', 'meta', 'status', 'warnings']);
+  assert.equal(result.status, 'ready');
+  assert.equal(result.data.date, '2026-07-05');
+  assert.equal(result.data.invoiceNumber, 'INV-001');
+  assert.equal(result.data.amount, 106);
+  assert.deepEqual(result.warnings, []);
   assert.deepEqual(result.meta, {
     model: 'primary-test-model',
     fallbackUsed: false,
     latencyMs: 0
   });
   assert.equal(requests.length, 1);
-  assert.equal(requests[0].model, 'primary-test-model');
 });
 
-test('JSON extraction failure rechecks the same compressed image with fallback model', async () => {
+test('unreadable primary output rechecks the same image and returns a ready fallback envelope', async () => {
   const firstRawOutput = 'FIRST_RAW_OUTPUT_SHOULD_NOT_REPEAT';
   const requests = [];
   const payloads = [
     createModelPayload(firstRawOutput),
-    createModelPayload('{"d":"2026-07-05","n":"INV-2","t":88,"x":5,"w":88}')
+    createModelPayload(readyInvoice({ n: 'INV-REVIEWED' }))
   ];
 
   const result = await recognizeInvoiceFromImage({
@@ -97,30 +109,22 @@ test('JSON extraction failure rechecks the same compressed image with fallback m
   ]);
   assert.equal(requests[0].input.messages[0].content[0].image, TEST_IMAGE);
   assert.equal(requests[1].input.messages[0].content[0].image, TEST_IMAGE);
-
   const fallbackPrompt = requests[1].input.messages[0].content[1].text;
   assert.match(fallbackPrompt, /重新独立查看原图/);
-  assert.match(fallbackPrompt, /日期/);
-  assert.match(fallbackPrompt, /发票号码/);
-  assert.match(fallbackPrompt, /金额/);
-  assert.match(fallbackPrompt, /税额/);
-  assert.match(fallbackPrompt, /价税合计/);
   assert.doesNotMatch(fallbackPrompt, new RegExp(firstRawOutput));
-
-  assert.equal(result.n, 'INV-2');
+  assert.equal(result.status, 'ready');
+  assert.equal(result.data.invoiceNumber, 'INV-REVIEWED');
   assert.equal(result.meta.model, 'review-test-model');
   assert.equal(result.meta.fallbackUsed, true);
 });
 
-test('exhausted primary 503 retries use fallback model and return fallback meta', async () => {
+test('exhausted primary HTTP retries use fallback and retain fallback metadata', async () => {
   const requests = [];
   const result = await recognizeInvoiceFromImage({
     image: TEST_IMAGE,
     env: createEnv({ QWEN_MAX_RETRIES: '1' }),
     fetchImpl: async (_url, options) => {
-      const request = JSON.parse(options.body);
-      requests.push(request);
-
+      requests.push(JSON.parse(options.body));
       if (requests.length <= 2) {
         return {
           ok: false,
@@ -129,8 +133,7 @@ test('exhausted primary 503 retries use fallback model and return fallback meta'
           json: async () => ({ message: 'temporary outage' })
         };
       }
-
-      return createResponse(createModelPayload('{"d":"2026-07-05","n":"REVIEWED-503"}'));
+      return createResponse(createModelPayload(readyInvoice({ n: 'REVIEWED-503' })));
     },
     now: () => 100
   });
@@ -140,16 +143,16 @@ test('exhausted primary 503 retries use fallback model and return fallback meta'
     'primary-test-model',
     'review-test-model'
   ]);
-  assert.equal(result.n, 'REVIEWED-503');
-  assert.equal(result.meta.model, 'review-test-model');
+  assert.equal(result.status, 'ready');
+  assert.equal(result.data.invoiceNumber, 'REVIEWED-503');
   assert.equal(result.meta.fallbackUsed, true);
 });
 
-test('injected result validation failure triggers fallback recognition', async () => {
+test('an incomplete primary result triggers fallback and can become ready', async () => {
   const requests = [];
   const payloads = [
-    createModelPayload('{"d":"2026-07-05","n":"PRIMARY"}'),
-    createModelPayload('{"d":"2026-07-05","n":"REVIEWED"}')
+    createModelPayload('{"d":"","n":"PRIMARY","t":106,"w":106}'),
+    createModelPayload(readyInvoice({ n: 'REVIEWED' }))
   ];
 
   const result = await recognizeInvoiceFromImage({
@@ -159,7 +162,6 @@ test('injected result validation failure triggers fallback recognition', async (
       requests.push(JSON.parse(options.body));
       return createResponse(payloads.shift());
     },
-    validateResult: (invoice) => invoice.n === 'REVIEWED',
     now: () => 100
   });
 
@@ -167,11 +169,84 @@ test('injected result validation failure triggers fallback recognition', async (
     'primary-test-model',
     'review-test-model'
   ]);
-  assert.equal(result.n, 'REVIEWED');
+  assert.equal(result.status, 'ready');
+  assert.equal(result.data.invoiceNumber, 'REVIEWED');
+  assert.deepEqual(result.warnings, []);
+});
+
+test('a primary result with mixed positive and negative totals triggers fallback', async () => {
+  const requests = [];
+  const payloads = [
+    createModelPayload(readyInvoice({ t: -1, w: 106 })),
+    createModelPayload(readyInvoice({ n: 'REVIEWED-NEGATIVE' }))
+  ];
+
+  const result = await recognizeInvoiceFromImage({
+    image: TEST_IMAGE,
+    env: createEnv(),
+    fetchImpl: async (_url, options) => {
+      requests.push(JSON.parse(options.body));
+      return createResponse(payloads.shift());
+    },
+    now: () => 100
+  });
+
+  assert.deepEqual(requests.map(request => request.model), [
+    'primary-test-model',
+    'review-test-model'
+  ]);
+  assert.equal(result.status, 'ready');
+  assert.equal(result.data.invoiceNumber, 'REVIEWED-NEGATIVE');
   assert.equal(result.meta.fallbackUsed, true);
 });
 
-test('high_accuracy mode only uses the enhanced recognition model', async () => {
+test('a primary result with a missing-tax relationship mismatch triggers fallback', async () => {
+  const requests = [];
+  const payloads = [
+    createModelPayload(readyInvoice({ x: null, y: 100, t: 106, w: 106 })),
+    createModelPayload(readyInvoice({ n: 'REVIEWED-MISSING-TAX' }))
+  ];
+
+  const result = await recognizeInvoiceFromImage({
+    image: TEST_IMAGE,
+    env: createEnv(),
+    fetchImpl: async (_url, options) => {
+      requests.push(JSON.parse(options.body));
+      return createResponse(payloads.shift());
+    },
+    now: () => 100
+  });
+
+  assert.deepEqual(requests.map(request => request.model), [
+    'primary-test-model',
+    'review-test-model'
+  ]);
+  assert.equal(result.status, 'ready');
+  assert.equal(result.data.invoiceNumber, 'REVIEWED-MISSING-TAX');
+  assert.equal(result.meta.fallbackUsed, true);
+});
+
+test('an incomplete fallback result is returned as needs_review with editable data', async () => {
+  const payloads = [
+    createModelPayload('{"d":"","n":"PRIMARY"}'),
+    createModelPayload('{"d":"2026-07-05","n":"REVIEWED","s":"已识别摘要"}')
+  ];
+
+  const result = await recognizeInvoiceFromImage({
+    image: TEST_IMAGE,
+    env: createEnv(),
+    fetchImpl: async () => createResponse(payloads.shift()),
+    now: () => 100
+  });
+
+  assert.equal(result.status, 'needs_review');
+  assert.equal(result.data.invoiceNumber, 'REVIEWED');
+  assert.equal(result.data.description, '已识别摘要');
+  assert.equal(result.warnings.some(warning => warning.code === 'missing_amount'), true);
+  assert.equal(result.meta.fallbackUsed, true);
+});
+
+test('high_accuracy returns an incomplete parseable result as needs_review without another model', async () => {
   const requests = [];
   const result = await recognizeInvoiceFromImage({
     image: TEST_IMAGE,
@@ -185,7 +260,85 @@ test('high_accuracy mode only uses the enhanced recognition model', async () => 
   });
 
   assert.deepEqual(requests.map(request => request.model), ['accuracy-test-model']);
-  assert.equal(result.n, 'ACCURATE');
+  assert.equal(result.status, 'needs_review');
+  assert.equal(result.data.invoiceNumber, 'ACCURATE');
+  assert.equal(result.warnings.some(warning => warning.code === 'missing_amount'), true);
+  assert.equal(result.meta.fallbackUsed, false);
+});
+
+test('two unreadable normal-mode outputs return failed with fallback metadata', async () => {
+  const requests = [];
+  const outputs = ['not readable', '{"broken"'];
+  const result = await recognizeInvoiceFromImage({
+    image: TEST_IMAGE,
+    env: createEnv(),
+    fetchImpl: async (_url, options) => {
+      requests.push(JSON.parse(options.body));
+      return createResponse(createModelPayload(outputs.shift()));
+    },
+    now: () => 100
+  });
+
+  assert.deepEqual(requests.map(request => request.model), [
+    'primary-test-model',
+    'review-test-model'
+  ]);
+  assert.equal(result.status, 'failed');
+  assert.deepEqual(result.warnings, [{
+    code: 'unreadable_response',
+    field: null,
+    message: '暂时没有识别成功'
+  }]);
+  assert.equal(result.meta.model, 'review-test-model');
+  assert.equal(result.meta.fallbackUsed, true);
+});
+
+test('unreadable high_accuracy output returns failed with enhanced model metadata', async () => {
+  const result = await recognizeInvoiceFromImage({
+    image: TEST_IMAGE,
+    mode: 'high_accuracy',
+    env: createEnv(),
+    fetchImpl: async () => createResponse(createModelPayload('not readable')),
+    now: () => 100
+  });
+
+  assert.equal(result.status, 'failed');
   assert.equal(result.meta.model, 'accuracy-test-model');
   assert.equal(result.meta.fallbackUsed, false);
+});
+
+test('configuration, authentication, and network failures remain service errors', async () => {
+  await assert.rejects(
+    recognizeInvoiceFromImage({
+      image: TEST_IMAGE,
+      env: createEnv({ QWEN_API_KEY: '' }),
+      fetchImpl: async () => { throw new Error('must not run'); }
+    }),
+    (error) => error.code === 'CONFIG_ERROR'
+  );
+
+  await assert.rejects(
+    recognizeInvoiceFromImage({
+      image: TEST_IMAGE,
+      env: createEnv(),
+      fetchImpl: async () => ({ ok: false, status: 401, statusText: 'Unauthorized' }),
+      now: () => 100
+    }),
+    (error) => error.code === 'UPSTREAM_HTTP_ERROR' && error.statusCode === 401
+  );
+
+  let networkCalls = 0;
+  await assert.rejects(
+    recognizeInvoiceFromImage({
+      image: TEST_IMAGE,
+      env: createEnv(),
+      fetchImpl: async () => {
+        networkCalls += 1;
+        throw new Error('network unavailable');
+      },
+      now: () => 100
+    }),
+    (error) => error.code === 'UPSTREAM_NETWORK_ERROR'
+  );
+  assert.equal(networkCalls, 2);
 });

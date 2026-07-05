@@ -33,23 +33,39 @@ export function shouldUseFallback(error) {
   return error?.canFallback === true;
 }
 
-function validationError() {
-  return new ModelRoutingError('Model result did not pass validation', {
-    code: 'RESULT_VALIDATION_ERROR',
-    canFallback: false
-  });
+function createRoutingMeta(model, fallbackUsed, startedAt, now) {
+  const elapsed = Number(now()) - Number(startedAt);
+  return {
+    model,
+    fallbackUsed,
+    latencyMs: Math.max(0, Math.round(Number.isFinite(elapsed) ? elapsed : 0))
+  };
 }
 
 function createRoutedResult(result, model, fallbackUsed, startedAt, now) {
-  const elapsed = Number(now()) - Number(startedAt);
   return {
     result,
-    meta: {
-      model,
-      fallbackUsed,
-      latencyMs: Math.max(0, Math.round(Number.isFinite(elapsed) ? elapsed : 0))
-    }
+    meta: createRoutingMeta(model, fallbackUsed, startedAt, now)
   };
+}
+
+function attachRoutingMeta(error, model, fallbackUsed, startedAt, now) {
+  const routingMeta = createRoutingMeta(model, fallbackUsed, startedAt, now);
+  if (error && (typeof error === 'object' || typeof error === 'function')) {
+    try {
+      error.routingMeta = routingMeta;
+      return error;
+    } catch {
+      // Fall through to a safe wrapper when an upstream error is immutable.
+    }
+  }
+
+  const wrapped = new ModelRoutingError('Model request failed', {
+    code: typeof error?.code === 'string' ? error.code : 'MODEL_ROUTING_ERROR',
+    canFallback: false
+  });
+  wrapped.routingMeta = routingMeta;
+  return wrapped;
 }
 
 export async function routeModelRequest({
@@ -62,12 +78,15 @@ export async function routeModelRequest({
   const startedAt = now();
 
   if (mode === 'high_accuracy') {
-    const result = await invokeModel({
-      model: models.highAccuracy,
-      attempt: 'high_accuracy'
-    });
-    if (!await validateResult(result)) throw validationError();
-    return createRoutedResult(result, models.highAccuracy, false, startedAt, now);
+    try {
+      const result = await invokeModel({
+        model: models.highAccuracy,
+        attempt: 'high_accuracy'
+      });
+      return createRoutedResult(result, models.highAccuracy, false, startedAt, now);
+    } catch (error) {
+      throw attachRoutingMeta(error, models.highAccuracy, false, startedAt, now);
+    }
   }
 
   if (mode !== 'normal') {
@@ -87,14 +106,18 @@ export async function routeModelRequest({
       return createRoutedResult(primaryResult, models.primary, false, startedAt, now);
     }
   } catch (error) {
-    if (!shouldUseFallback(error)) throw error;
+    if (!shouldUseFallback(error)) {
+      throw attachRoutingMeta(error, models.primary, false, startedAt, now);
+    }
   }
 
-  const fallbackResult = await invokeModel({
-    model: models.fallback,
-    attempt: 'fallback'
-  });
-  if (!await validateResult(fallbackResult)) throw validationError();
-
-  return createRoutedResult(fallbackResult, models.fallback, true, startedAt, now);
+  try {
+    const fallbackResult = await invokeModel({
+      model: models.fallback,
+      attempt: 'fallback'
+    });
+    return createRoutedResult(fallbackResult, models.fallback, true, startedAt, now);
+  } catch (error) {
+    throw attachRoutingMeta(error, models.fallback, true, startedAt, now);
+  }
 }

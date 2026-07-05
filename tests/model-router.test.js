@@ -103,6 +103,25 @@ test('normal mode uses fallback when primary result validation fails', async () 
   assert.equal(result.meta.fallbackUsed, true);
 });
 
+test('normal mode returns an invalid fallback result for business review', async () => {
+  const calls = [];
+  const result = await routeModelRequest({
+    mode: 'normal',
+    models: loadModelRoutingConfig(TEST_ENV),
+    invokeModel: async (request) => {
+      calls.push(request);
+      return { valid: false, attempt: request.attempt };
+    },
+    validateResult: (value) => value.valid,
+    now: () => 100
+  });
+
+  assert.deepEqual(calls.map(call => call.attempt), ['primary', 'fallback']);
+  assert.deepEqual(result.result, { valid: false, attempt: 'fallback' });
+  assert.equal(result.meta.model, 'review-test-model');
+  assert.equal(result.meta.fallbackUsed, true);
+});
+
 test('normal mode does not use fallback for configuration or authentication errors', async () => {
   for (const error of [
     new QwenClientError('configuration failed', {
@@ -148,6 +167,59 @@ test('high_accuracy mode only invokes the enhanced recognition model', async () 
   ]);
   assert.equal(result.meta.model, 'accuracy-test-model');
   assert.equal(result.meta.fallbackUsed, false);
+});
+
+test('high_accuracy returns an invalid result without invoking another model', async () => {
+  const calls = [];
+  const result = await routeModelRequest({
+    mode: 'high_accuracy',
+    models: loadModelRoutingConfig(TEST_ENV),
+    invokeModel: async (request) => {
+      calls.push(request);
+      return { valid: false };
+    },
+    validateResult: (value) => value.valid,
+    now: () => 100
+  });
+
+  assert.deepEqual(calls.map(call => call.attempt), ['high_accuracy']);
+  assert.deepEqual(result.result, { valid: false });
+  assert.equal(result.meta.model, 'accuracy-test-model');
+  assert.equal(result.meta.fallbackUsed, false);
+});
+
+test('a final model error carries only safe routing metadata', async () => {
+  const finalError = new QwenClientError('fallback could not be read', {
+    code: 'OCR_RESPONSE_ERROR',
+    canFallback: true
+  });
+
+  await assert.rejects(
+    routeModelRequest({
+      mode: 'normal',
+      models: loadModelRoutingConfig(TEST_ENV),
+      invokeModel: async ({ attempt }) => {
+        if (attempt === 'primary') return { valid: false };
+        throw finalError;
+      },
+      validateResult: (value) => value.valid,
+      now: (() => {
+        const values = [100, 125];
+        return () => values.shift() ?? 125;
+      })()
+    }),
+    (error) => {
+      assert.equal(error, finalError);
+      assert.deepEqual(error.routingMeta, {
+        model: 'review-test-model',
+        fallbackUsed: true,
+        latencyMs: 25
+      });
+      assert.deepEqual(Object.keys(error.routingMeta).sort(), ['fallbackUsed', 'latencyMs', 'model']);
+      assert.doesNotMatch(JSON.stringify(error.routingMeta), /base64|invoice|image/i);
+      return true;
+    }
+  );
 });
 
 test('routeModelRequest rejects an unsupported mode before invoking a model', async () => {

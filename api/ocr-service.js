@@ -1,5 +1,13 @@
 import { createQwenClient } from './qwen-client.js';
 import { loadModelRoutingConfig, routeModelRequest } from './model-router.js';
+import {
+  InvoiceResponseError,
+  createFailedInvoiceResult,
+  evaluateInvoice,
+  extractInvoiceModelObject,
+  parseInvoiceModelPayload,
+  shouldRecheckInvoice
+} from './invoice-schema.js';
 
 const OCR_PROMPT_VERSION = 'v2-short-keys';
 
@@ -56,52 +64,12 @@ const QWEN_REVIEW_PROMPT = `请重新独立查看原图并完成一次复查识�
 
 ${QWEN_OCR_PROMPT}`;
 
-function getModelText(payload) {
-  const content = payload?.output?.choices?.[0]?.message?.content;
-
-  if (!Array.isArray(content) || content.length === 0) {
-    throw new Error('Invalid response from Qwen API');
-  }
-
-  const firstPart = content[0];
-  if (typeof firstPart === 'string') return firstPart;
-  if (typeof firstPart?.text === 'string') return firstPart.text;
-
-  throw new Error('Invalid response from Qwen API');
-}
-
 export function extractJsonObject(payload) {
-  const responseText = getModelText(payload);
-  const startIdx = responseText.indexOf('{');
-  const endIdx = responseText.lastIndexOf('}');
-
-  if (startIdx === -1 || endIdx === -1 || endIdx <= startIdx) {
-    throw new Error('No JSON found in response');
-  }
-
-  const jsonStr = responseText.slice(startIdx, endIdx + 1);
-  return JSON.parse(jsonStr);
-}
-
-class OcrResponseError extends Error {
-  constructor() {
-    super('Qwen response did not contain a readable JSON object');
-    this.name = 'OcrResponseError';
-    this.code = 'OCR_RESPONSE_ERROR';
-    this.canFallback = true;
-  }
+  return extractInvoiceModelObject(payload);
 }
 
 function parseModelResult(payload) {
-  try {
-    return extractJsonObject(payload);
-  } catch {
-    throw new OcrResponseError();
-  }
-}
-
-function isInvoiceObject(value) {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+  return parseInvoiceModelPayload(payload);
 }
 
 export function mapOcrServiceError(error) {
@@ -122,7 +90,6 @@ export async function recognizeInvoiceFromImage({
   mode = 'normal',
   env = process.env,
   fetchImpl = globalThis.fetch,
-  validateResult = isInvoiceObject,
   now = Date.now
 }) {
   if (!image) {
@@ -134,25 +101,33 @@ export async function recognizeInvoiceFromImage({
 
   const client = createQwenClient({ env, fetchImpl, now });
   const models = loadModelRoutingConfig(env);
-  const routed = await routeModelRequest({
-    mode,
-    models,
-    now,
-    validateResult,
-    invokeModel: async ({ model, attempt }) => {
-      const payload = await client.generate({
-        model,
-        image,
-        prompt: attempt === 'fallback' ? QWEN_REVIEW_PROMPT : QWEN_OCR_PROMPT
-      });
-      return parseModelResult(payload);
-    }
-  });
+  try {
+    const routed = await routeModelRequest({
+      mode,
+      models,
+      now,
+      validateResult: result => !shouldRecheckInvoice(result),
+      invokeModel: async ({ model, attempt }) => {
+        const payload = await client.generate({
+          model,
+          image,
+          prompt: attempt === 'fallback' ? QWEN_REVIEW_PROMPT : QWEN_OCR_PROMPT
+        });
+        return parseModelResult(payload);
+      }
+    });
+    const evaluated = evaluateInvoice(routed.result);
 
-  return {
-    ...routed.result,
-    meta: routed.meta
-  };
+    return {
+      ...evaluated,
+      meta: routed.meta
+    };
+  } catch (error) {
+    if (error instanceof InvoiceResponseError) {
+      return createFailedInvoiceResult(error.routingMeta || {});
+    }
+    throw error;
+  }
 }
 
 export { QWEN_OCR_PROMPT, QWEN_REVIEW_PROMPT, OCR_PROMPT_VERSION };
