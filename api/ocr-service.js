@@ -79,8 +79,9 @@ export function mapOcrServiceError(error) {
   return {
     statusCode: 500,
     payload: {
-      error: 'OCR processing failed',
-      code
+      error: '识别服务暂时不可用。',
+      code,
+      action: '请稍后重新识别；如果仍然失败，请联系管理员。'
     }
   };
 }

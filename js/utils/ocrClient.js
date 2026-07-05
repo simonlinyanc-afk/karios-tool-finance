@@ -2,6 +2,7 @@
 // Unified Architecture: single OCR orchestrator for batch and single-item uploads.
 
 const OCR_PROMPT_VERSION = 'v2-short-keys';
+const OCR_ACCESS_CREDENTIAL_SESSION_KEY = 'kairos.ocr.accessCredential';
 
 const SHORT_KEY_MAP = {
     date: ['date', 'd'],
@@ -87,6 +88,52 @@ function getNumberValue(data, key) {
     const value = getValue(data, key);
     const parsed = parseFloat(value);
     return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function getSessionAccessCredential() {
+    try {
+        return String(window.sessionStorage?.getItem(OCR_ACCESS_CREDENTIAL_SESSION_KEY) || '').trim();
+    } catch {
+        return '';
+    }
+}
+
+function saveSessionAccessCredential(value) {
+    const credential = String(value || '').trim();
+    if (!credential) return '';
+    try {
+        window.sessionStorage?.setItem(OCR_ACCESS_CREDENTIAL_SESSION_KEY, credential);
+    } catch {
+        return '';
+    }
+    return credential;
+}
+
+function clearSessionAccessCredential() {
+    try {
+        window.sessionStorage?.removeItem(OCR_ACCESS_CREDENTIAL_SESSION_KEY);
+    } catch {
+        // The request can still fail safely when browser storage is unavailable.
+    }
+}
+
+function buildOcrRequestHeaders(credential) {
+    const headers = { 'Content-Type': 'application/json' };
+    if (credential) {
+        headers.Authorization = `Bearer ${credential}`;
+        headers['X-OCR-Token-Source'] = 'session';
+    }
+    return headers;
+}
+
+function createOcrRequestError(payload, status) {
+    const errorText = typeof payload?.error === 'string' && payload.error.trim()
+        ? payload.error.trim()
+        : `识别服务暂时无法处理请求（${status}）。`;
+    const actionText = typeof payload?.action === 'string' && payload.action.trim()
+        ? payload.action.trim()
+        : '请稍后重新识别；如果仍然失败，请手动填写。';
+    return new Error(`${errorText} ${actionText}`);
 }
 
 function normalizeWarningFlags(flags) {
@@ -543,20 +590,46 @@ async function processInvoiceFile(file, isPDF, reimbursementInfo, options = {}) 
     }
 
     try {
-        const response = await fetch('/api/ocr', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                image: imgData.compressedBase64,
-                mode
-            }),
-            signal: controller.signal
+        const requestBody = JSON.stringify({
+            image: imgData.compressedBase64,
+            mode
         });
+        let credential = getSessionAccessCredential();
+        let promptedForCredential = false;
+        let response;
 
-        if (!response.ok) {
+        while (true) {
+            response = await fetch('/api/ocr', {
+                method: 'POST',
+                headers: buildOcrRequestHeaders(credential),
+                body: requestBody,
+                signal: controller.signal
+            });
+
+            if (response.ok) break;
+
             const errorPayload = await response.json().catch(() => ({}));
             throwIfRequestAborted();
-            throw new Error(errorPayload.details || errorPayload.error || `API Error: ${response.status}`);
+
+            if (response.status !== 403) {
+                throw createOcrRequestError(errorPayload, response.status);
+            }
+
+            clearSessionAccessCredential();
+            if (promptedForCredential) {
+                throw new Error('访问凭证无效。请重新输入访问凭证，然后再次识别。');
+            }
+
+            promptedForCredential = true;
+            const input = window.prompt?.('请输入访问凭证（仅在当前页面会话中保存，关闭页面后失效）：');
+            const enteredCredential = String(input || '').trim();
+            if (!enteredCredential) {
+                throw new Error('尚未输入访问凭证。请输入访问凭证后重新识别。');
+            }
+            credential = saveSessionAccessCredential(enteredCredential);
+            if (!credential) {
+                throw new Error('当前浏览器无法安全保存访问凭证。请检查浏览器隐私设置后重试；如果仍然失败，请联系管理员。');
+            }
         }
 
         const data = await response.json();

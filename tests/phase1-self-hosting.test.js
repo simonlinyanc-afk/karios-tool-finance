@@ -113,7 +113,7 @@ test('self-hosted OCR dispatch passes the formal service envelope through unchan
 });
 
 test('self-hosted OCR returns safe stable service errors without sensitive logs', async () => {
-  const secretImage = 'data:image/png;base64,SECRET_IMAGE';
+  const secretImage = 'data:image/png;base64,U0VDUkVUX0lNQUdF';
   const secretKey = 'sk-secret-api-key';
   const cases = [
     { statusCode: 401, code: 'UPSTREAM_AUTH_ERROR', expectedCode: 'UPSTREAM_AUTH_ERROR' },
@@ -127,28 +127,22 @@ test('self-hosted OCR returns safe stable service errors without sensitive logs'
     });
     failure.code = errorCase.code;
     failure.statusCode = errorCase.statusCode;
+    const logged = [];
     const server = createAppServer({
       ocrService: async () => {
         throw failure;
-      }
+      },
+      logger: { log: (entry) => logged.push([entry]) }
     });
-    const logged = [];
-    const originalConsoleError = console.error;
-    let response;
-
-    console.error = (...args) => logged.push(args);
-    try {
-      response = await dispatchOcrRequest(server, { image: secretImage });
-    } finally {
-      console.error = originalConsoleError;
-    }
+    const response = await dispatchOcrRequest(server, { image: secretImage });
 
     const serializedLog = serializeLogEntries(logged);
     const serializedResponse = JSON.stringify(response.payload);
     assert.equal(response.statusCode, 500);
     assert.deepEqual(response.payload, {
-      error: 'OCR processing failed',
-      code: errorCase.expectedCode
+      error: '识别服务暂时不可用。',
+      code: errorCase.expectedCode,
+      action: '请稍后重新识别；如果仍然失败，请联系管理员。'
     });
     assert.doesNotMatch(serializedResponse, /SECRET_IMAGE|base64|sk-secret-api-key/);
     assert.match(serializedLog, new RegExp(errorCase.expectedCode));
@@ -164,5 +158,9 @@ test('self-hosted OCR returns 400 when image is missing', async () => {
   const response = await dispatchOcrRequest(server, {});
 
   assert.equal(response.statusCode, 400);
-  assert.deepEqual(response.payload, { error: 'Missing image data' });
+  assert.deepEqual(response.payload, {
+    error: '图片内容无法读取。',
+    code: 'INVALID_IMAGE_DATA',
+    action: '请重新选择 JPG 或 PNG 图片后再试。'
+  });
 });

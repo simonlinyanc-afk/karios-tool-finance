@@ -63,6 +63,7 @@ test('Vercel OCR handler passes high_accuracy mode to the shared service', async
   });
   const req = {
     method: 'POST',
+    headers: { 'content-type': 'application/json' },
     body: {
       image: 'data:image/png;base64,Zm9v',
       mode: 'high_accuracy'
@@ -90,6 +91,7 @@ test('Vercel OCR handler defaults missing mode to normal', async () => {
   });
   const req = {
     method: 'POST',
+    headers: { 'content-type': 'application/json' },
     body: { image: 'data:image/png;base64,Zm9v' }
   };
 
@@ -107,6 +109,7 @@ test('Vercel OCR handler passes the formal service envelope through unchanged', 
 
   await handler({
     method: 'POST',
+    headers: { 'content-type': 'application/json' },
     body: { image: 'data:image/png;base64,Zm9v' }
   }, response);
 
@@ -116,7 +119,7 @@ test('Vercel OCR handler passes the formal service envelope through unchanged', 
 });
 
 test('Vercel OCR handler maps service errors to safe stable responses', async () => {
-  const secretImage = 'data:image/png;base64,SECRET_IMAGE';
+  const secretImage = 'data:image/png;base64,U0VDUkVUX0lNQUdF';
   const secretKey = 'sk-secret-api-key';
   const cases = [
     { statusCode: 401, code: 'UPSTREAM_AUTH_ERROR', expectedCode: 'UPSTREAM_AUTH_ERROR' },
@@ -131,31 +134,28 @@ test('Vercel OCR handler maps service errors to safe stable responses', async ()
     failure.code = errorCase.code;
     failure.statusCode = errorCase.statusCode;
 
+    const logged = [];
     const handler = createOcrHandler({
       ocrService: async () => {
         throw failure;
-      }
+      },
+      logger: { log: (entry) => logged.push([entry]) }
     });
-    const logged = [];
-    const originalConsoleError = console.error;
     const response = createResponseRecorder();
 
-    console.error = (...args) => logged.push(args);
-    try {
-      await handler({
-        method: 'POST',
-        body: { image: secretImage }
-      }, response);
-    } finally {
-      console.error = originalConsoleError;
-    }
+    await handler({
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: { image: secretImage }
+    }, response);
 
     const serializedLog = serializeLogEntries(logged);
     const serializedResponse = JSON.stringify(response.payload);
     assert.equal(response.statusCode, 500);
     assert.deepEqual(response.payload, {
-      error: 'OCR processing failed',
-      code: errorCase.expectedCode
+      error: '识别服务暂时不可用。',
+      code: errorCase.expectedCode,
+      action: '请稍后重新识别；如果仍然失败，请联系管理员。'
     });
     assert.doesNotMatch(serializedResponse, /SECRET_IMAGE|base64|sk-secret-api-key/);
     assert.match(serializedLog, new RegExp(errorCase.expectedCode));

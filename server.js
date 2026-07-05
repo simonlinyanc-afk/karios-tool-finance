@@ -4,7 +4,20 @@ import fs from 'node:fs';
 import fsPromises from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 
+import { createRequestId, ocrLogger } from './api/logger.js';
 import { mapOcrServiceError, recognizeInvoiceFromImage } from './api/ocr-service.js';
+import {
+  MAX_REQUEST_BODY_BYTES,
+  OcrSecurityError,
+  assertContentLength,
+  assertJsonContentType,
+  assertProductionSecurityConfig,
+  authenticateOcrRequest,
+  createSecurityError,
+  normalizeTokenSource,
+  toSecurityResponse,
+  validateImageDataUrl
+} from './api/security.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -66,29 +79,72 @@ export async function loadEnvFiles(rootDir = process.cwd()) {
   }
 }
 
-async function readJsonBody(req, maxBytes = 15 * 1024 * 1024) {
-  const chunks = [];
-  let totalBytes = 0;
+async function readJsonBody(req, maxBytes = MAX_REQUEST_BODY_BYTES) {
+  const rawBuffer = await new Promise((resolve, reject) => {
+    const chunks = [];
+    let totalBytes = 0;
+    let settled = false;
+    let overflowed = false;
 
-  for await (const chunk of req) {
-    totalBytes += chunk.length;
-    if (totalBytes > maxBytes) {
-      const error = new Error('Request body too large');
-      error.statusCode = 413;
-      throw error;
-    }
-    chunks.push(chunk);
-  }
+    const cleanup = () => {
+      req.removeListener('data', onData);
+      req.removeListener('end', onEnd);
+      req.removeListener('error', onError);
+      req.removeListener('aborted', onAborted);
+      req.removeListener('close', onClose);
+    };
+    const rejectOnce = (error) => {
+      if (settled) return;
+      settled = true;
+      reject(error);
+    };
+    const onData = (chunk) => {
+      if (overflowed) return;
+      totalBytes += chunk.length;
+      if (totalBytes > maxBytes) {
+        overflowed = true;
+        chunks.length = 0;
+        rejectOnce(createSecurityError('REQUEST_TOO_LARGE'));
+        return;
+      }
+      chunks.push(chunk);
+    };
+    const onEnd = () => {
+      if (!settled) {
+        settled = true;
+        resolve(Buffer.concat(chunks));
+      }
+      cleanup();
+    };
+    const onError = (error) => {
+      rejectOnce(error);
+      cleanup();
+    };
+    const onAborted = () => {
+      rejectOnce(createSecurityError('INVALID_REQUEST_BODY'));
+    };
+    const onClose = () => {
+      if (!req.readableEnded) {
+        rejectOnce(createSecurityError('INVALID_REQUEST_BODY'));
+      }
+      cleanup();
+    };
 
-  const raw = Buffer.concat(chunks).toString('utf8');
+    req.on('data', onData);
+    req.once('end', onEnd);
+    req.once('error', onError);
+    req.once('aborted', onAborted);
+    req.once('close', onClose);
+    req.resume();
+  });
+
+  const raw = rawBuffer.toString('utf8');
   if (!raw) return {};
 
   try {
     return JSON.parse(raw);
   } catch {
-    const error = new Error('Invalid JSON body');
-    error.statusCode = 400;
-    throw error;
+    throw createSecurityError('INVALID_REQUEST_BODY');
   }
 }
 
@@ -109,7 +165,7 @@ function normalizePathname(urlPath) {
   }
 }
 
-async function serveStaticFile(res, rootDir, requestPath) {
+async function serveStaticFile(res, rootDir, requestPath, { logger, requestId } = {}) {
   const normalizedPath = normalizePathname(requestPath);
   const relativePath = normalizedPath === '/' ? '/index.html' : normalizedPath;
   const safePath = path.normalize(relativePath).replace(/^(\.\.[/\\])+/, '');
@@ -138,43 +194,100 @@ async function serveStaticFile(res, rootDir, requestPath) {
       return;
     }
 
-    console.error('Static file error:', error);
+    logOcrResult(logger, {
+      requestId,
+      status: 500,
+      errorType: 'STATIC_FILE_ERROR'
+    });
     sendJson(res, 500, { error: 'Failed to load resource' });
   }
 }
 
-async function handleOcrRequest(req, res, ocrService) {
-  if (req.method === 'OPTIONS') {
-    res.writeHead(204);
-    res.end();
-    return;
-  }
+function getRequestTokenSource(req) {
+  return normalizeTokenSource(req.headers?.['x-ocr-token-source']);
+}
 
-  if (req.method !== 'POST') {
-    sendJson(res, 405, { error: 'Method not allowed' });
-    return;
-  }
-
-  let body;
-  try {
-    body = await readJsonBody(req);
-  } catch (error) {
-    if (error.statusCode === 400 || error.statusCode === 413) {
-      sendJson(res, error.statusCode, { error: error.message });
-      return;
+function getSecurityHeaders(req) {
+  const headers = { ...(req.headers || {}) };
+  for (const name of ['authorization', 'content-type', 'content-length']) {
+    const values = req.headersDistinct?.[name];
+    if (Array.isArray(values) && values.length > 1) {
+      headers[name] = values;
     }
+  }
+  return headers;
+}
 
-    const safeError = mapOcrServiceError(error);
-    console.error('Self-hosted OCR error', {
-      code: safeError.payload.code,
-      statusCode: safeError.statusCode
+function logOcrResult(logger, fields) {
+  try {
+    logger?.log?.(fields);
+  } catch {
+    // Logging failures must not expose data or replace the HTTP response.
+  }
+}
+
+function sendSecurityError(res, error) {
+  const safeError = toSecurityResponse(error);
+  sendJson(res, safeError.statusCode, safeError.payload);
+  return safeError;
+}
+
+async function handleOcrRequest(req, res, {
+  ocrService,
+  env,
+  logger,
+  requestId,
+  maxRequestBytes
+}) {
+  if (req.method !== 'POST') {
+    const safeError = toSecurityResponse(createSecurityError('METHOD_NOT_ALLOWED'));
+    logOcrResult(logger, {
+      requestId,
+      status: safeError.statusCode,
+      errorType: safeError.payload.code,
+      tokenSource: getRequestTokenSource(req),
+      authResult: 'denied'
     });
     sendJson(res, safeError.statusCode, safeError.payload);
     return;
   }
 
-  if (!body.image) {
-    sendJson(res, 400, { error: 'Missing image data' });
+  let auth = {
+    tokenSource: getRequestTokenSource(req),
+    authResult: 'denied'
+  };
+  let body;
+  try {
+    const securityHeaders = getSecurityHeaders(req);
+    auth = authenticateOcrRequest({ headers: securityHeaders, env });
+    assertJsonContentType(securityHeaders);
+    assertContentLength(securityHeaders);
+    body = await readJsonBody(req, maxRequestBytes);
+    validateImageDataUrl(body?.image);
+  } catch (error) {
+    if (error instanceof OcrSecurityError) {
+      const safeError = sendSecurityError(res, error);
+      logOcrResult(logger, {
+        requestId,
+        status: safeError.statusCode,
+        errorType: safeError.payload.code,
+        tokenSource: auth.tokenSource,
+        authResult: error.code === 'SECURITY_NOT_CONFIGURED'
+          ? 'configuration_error'
+          : auth.authResult
+      });
+      return;
+    }
+
+    const safeError = mapOcrServiceError(error);
+    logOcrResult(logger, {
+      requestId,
+      status: safeError.statusCode,
+      errorType: safeError.payload.code,
+      tokenSource: auth.tokenSource,
+      authResult: auth.authResult
+    });
+    sendJson(res, safeError.statusCode, safeError.payload);
     return;
   }
 
@@ -185,11 +298,22 @@ async function handleOcrRequest(req, res, ocrService) {
       request: req
     });
     sendJson(res, 200, result);
+    logOcrResult(logger, {
+      requestId,
+      model: result?.meta?.model,
+      latencyMs: result?.meta?.latencyMs,
+      status: result?.status || 200,
+      tokenSource: auth.tokenSource,
+      authResult: auth.authResult
+    });
   } catch (error) {
     const safeError = mapOcrServiceError(error);
-    console.error('Self-hosted OCR error', {
-      code: safeError.payload.code,
-      statusCode: safeError.statusCode
+    logOcrResult(logger, {
+      requestId,
+      status: safeError.statusCode,
+      errorType: safeError.payload.code,
+      tokenSource: auth.tokenSource,
+      authResult: auth.authResult
     });
     sendJson(res, safeError.statusCode, safeError.payload);
   }
@@ -197,9 +321,14 @@ async function handleOcrRequest(req, res, ocrService) {
 
 export function createAppServer({
   rootDir = __dirname,
-  ocrService = recognizeInvoiceFromImage
+  ocrService = recognizeInvoiceFromImage,
+  env = process.env,
+  logger = ocrLogger,
+  requestIdFactory = createRequestId,
+  maxRequestBytes = MAX_REQUEST_BODY_BYTES
 } = {}) {
   return http.createServer(async (req, res) => {
+    const requestId = requestIdFactory();
     const requestUrl = new URL(req.url || '/', 'http://127.0.0.1');
 
     if (requestUrl.pathname === '/health') {
@@ -208,11 +337,17 @@ export function createAppServer({
     }
 
     if (requestUrl.pathname === '/api/ocr') {
-      await handleOcrRequest(req, res, ocrService);
+      await handleOcrRequest(req, res, {
+        ocrService,
+        env,
+        logger,
+        requestId,
+        maxRequestBytes
+      });
       return;
     }
 
-    await serveStaticFile(res, rootDir, requestUrl.pathname);
+    await serveStaticFile(res, rootDir, requestUrl.pathname, { logger, requestId });
   });
 }
 
@@ -226,25 +361,35 @@ export function getStartupDisplayOrigin({
 
 export async function startServer({
   rootDir = __dirname,
-  port = Number(process.env.PORT) || 3000,
-  host = process.env.HOST || '0.0.0.0'
+  port,
+  host
 } = {}) {
   await loadEnvFiles(rootDir);
+  assertProductionSecurityConfig(process.env);
+
+  const resolvedPort = port ?? (Number(process.env.PORT) || 3000);
+  const resolvedHost = host ?? (process.env.HOST || '127.0.0.1');
 
   const server = createAppServer({ rootDir });
 
   await new Promise((resolve, reject) => {
     server.once('error', reject);
-    server.listen(port, host, resolve);
+    server.listen(resolvedPort, resolvedHost, resolve);
   });
 
-  console.log(`Kairos Finance server listening on ${getStartupDisplayOrigin({ host, port })}`);
+  console.log(`Kairos Finance server listening on ${getStartupDisplayOrigin({
+    host: resolvedHost,
+    port: resolvedPort
+  })}`);
   return server;
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === __filename) {
   startServer().catch((error) => {
-    console.error('Failed to start self-hosted server:', error);
+    const errorType = /^[A-Z][A-Z0-9_]{0,63}$/u.test(error?.code || '')
+      ? error.code
+      : 'SERVER_STARTUP_ERROR';
+    ocrLogger.log({ status: 'startup_failed', errorType });
     process.exit(1);
   });
 }

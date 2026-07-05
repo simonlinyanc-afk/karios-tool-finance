@@ -1,9 +1,28 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { recognizeInvoiceFromImage } from '../api/ocr-service.js';
+import { mapOcrServiceError, recognizeInvoiceFromImage } from '../api/ocr-service.js';
 
 const TEST_IMAGE = 'data:image/jpeg;base64,compressed-invoice';
+
+test('generic OCR service errors use safe Chinese copy with a next action', () => {
+  const secret = 'data:image/png;base64,SECRET_IMAGE';
+  const error = new Error(`unsafe ${secret}`);
+  error.code = 'UPSTREAM_AUTH_ERROR';
+
+  const result = mapOcrServiceError(error);
+
+  assert.deepEqual(result, {
+    statusCode: 500,
+    payload: {
+      error: '识别服务暂时不可用。',
+      code: 'UPSTREAM_AUTH_ERROR',
+      action: '请稍后重新识别；如果仍然失败，请联系管理员。'
+    }
+  });
+  const serialized = JSON.stringify(result);
+  assert.doesNotMatch(serialized, /SECRET_IMAGE|base64|OCR processing|model|JSON|schema/u);
+});
 
 function createEnv(overrides = {}) {
   return {
