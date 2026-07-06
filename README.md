@@ -52,7 +52,7 @@ After deployment, add your API key:
 vercel env add QWEN_API_KEY
 ```
 
-Paste your key: `sk-dc07a675ed8e4c5792633e9a5dfc5a79`
+Paste your key: `DASHSCOPE_API_KEY_PLACEHOLDER`
 
 Select environments:
 
