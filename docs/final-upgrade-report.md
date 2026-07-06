@@ -17,6 +17,7 @@
 | Phase 5 | `5fa96c3` | 轻量构建系统元信息与构建系统说明 |
 | Phase 6 | `fc2d1c0` | 自托管部署资产、Docker Compose、Nginx 示例与 health endpoint |
 | 安全边界补强 | `ce11656` | 明确混合鉴权批准方案、生产 Token 边界与日志安全测试 |
+| 部署边界补强 | `c46cb88` | 移除 Vercel 部署脚本，并用测试防止部署能力回流 |
 
 当前仍保留的工作区旧脏文件未纳入上述阶段提交，包括 `.DS_Store`、`README.md`、`js/utils/imageProcessor.js`、`js/components/PDFTemplate.js`、`print.html` 的非阶段改动、黑色 SVG、`tests/self-hosting.test.js`、`tests/ocr-core.test.js` 等。
 
@@ -134,22 +135,22 @@ Nginx 示例包含：
 - 外置 snippet 注入内部 Bearer Token。
 - `/api/health` 代理。
 
-Docker Compose 配置解析已通过。Docker daemon 可访问，但容器实启阶段卡在拉取 `node:20-alpine` 元数据，未能在当前网络窗口完成。因此 Docker “实际启动并健康检查”仍需在网络可拉取基础镜像的环境中复验。
+Docker Compose 配置解析已通过。早期容器实启曾卡在拉取 `node:20-alpine` 元数据；后续复验已补齐：成功拉取 `node:20-alpine`，使用 `/private/tmp` 临时 env/compose 文件构建并启动 `kairos-finance:phase7-test`，容器状态为 healthy，`GET http://127.0.0.1:3107/api/health` 返回 `{"ok":true,"service":"kairos-finance"}`。无凭证访问容器内生产 `/api/ocr` 返回 403，日志只包含 `requestId`、`status`、`errorType`、`tokenSource`、`authResult`。
 
 ## Phase 7 回归矩阵
 
 | # | 回归项 | 证据 | 结论 |
 | --- | --- | --- | --- |
-| 1 | JPG 上传 | `tests/phase2-browser.test.js`、`tests/phase4-ux.test.js` 使用 `invoice.jpg` / `image/jpeg` 合成 File，上传区 accept 包含 JPEG | 自动化模拟通过；未找到真实发票 JPG 样本 |
-| 2 | PNG 上传 | `/api/ocr` 与安全测试覆盖 `data:image/png`；`UploadZone` accept 包含 PNG | 自动化模拟通过；未找到真实发票 PNG 样本 |
-| 3 | PDF 上传 | `UploadZone` accept 包含 `application/pdf`，PDF.js 仍保留 | 静态链路保留；未找到真实发票 PDF 样本 |
+| 1 | JPG 上传 | `tests/phase2-browser.test.js`、`tests/phase4-ux.test.js` 使用 `invoice.jpg` / `image/jpeg` 合成 File；另将真实 PDF 发票样本第 1 页派生为 JPEG，POST 到 mock OCR `/api/ocr` 生产鉴权路径返回 200 | 自动化模拟通过；真实样本派生 JPEG API 输入通过；未外发真实 OCR |
+| 2 | PNG 上传 | `/api/ocr` 与安全测试覆盖 `data:image/png`；另将真实 PDF 发票样本第 1 页派生为 PNG，POST 到 mock OCR `/api/ocr` 生产鉴权路径返回 200 | 自动化模拟通过；真实样本派生 PNG API 输入通过；未外发真实 OCR |
+| 3 | PDF 上传 | `UploadZone` accept 包含 `application/pdf`，PDF.js 仍保留；已定位真实 PDF 样本：`tools/test doc/单项目发票 test.pdf`、`tools/test doc/多项目发票-test.pdf`、`林彦丞 3 月报销/【62580约车-19.60元-1个行程】高德打车电子发票.pdf` | 静态链路保留且真实 PDF 样本已定位；浏览器 PDF.js 实际上传仍需人工或浏览器自动化窗口复验 |
 | 4 | OCR 缓存命中 | `tests/phase2-browser.test.js` 覆盖 OCR cache 保存与恢复，UI 显示“已从本地记录恢复” | 通过 |
 | 5 | `qwen3-vl-flash` 正常识别 | `tests/model-router.test.js`、`tests/ocr-service.test.js` 覆盖 primary 路由；模型名由环境变量读取 | 模拟通过；未调用真实 DashScope |
 | 6 | `qwen3.7-plus` 自动复查 | `tests/model-router.test.js`、`tests/ocr-service.test.js` 覆盖 primary 失败、校验失败、JSON 解析失败后复查 | 模拟通过；未调用真实 DashScope |
 | 7 | `qwen3-vl-plus` 增强识别 | `tests/model-router.test.js`、`tests/phase1-browser.test.js`、`tests/phase4-ux.test.js` 覆盖 `high_accuracy` 路由与前端入口 | 模拟通过；未调用真实 DashScope |
 | 8 | Excel 导出 | `tests/phase4-ux.test.js` 覆盖导出按钮、错误文案与 ExcelJS 安全提示；`exportManager.js` 保留 ExcelJS 链路 | 静态/单元覆盖通过；未做真实 Excel 文件人工打开 |
 | 9 | `print.html` | `tests/phase4-ux.test.js` 覆盖 Dexie v5 schema 与安全错误文案；打印链路仍使用 `printJobs` | 通过 |
-| 10 | Docker 启动 | `docker compose config` 通过；`docker info` 可访问；`docker compose up -d --build` 卡在基础镜像元数据拉取 | 配置通过；实际启动需网络可用时复验 |
+| 10 | Docker 启动 | `docker pull node:20-alpine` 成功；临时 Compose 构建并启动 `kairos-finance:phase7-test`；容器 healthy；`/api/health` 返回安全 payload；无 token `/api/ocr` 返回 403；测试容器已清理 | 通过 |
 | 11 | 无 token 请求 `/api/ocr` 被拒绝 | `tests/phase3-api-security.test.js` 覆盖生产环境无凭证 403 | 通过 |
 | 12 | 日志中没有 base64 | `tests/logger.test.js`、`tests/phase3-api-security.test.js`、`tests/ocr-service.test.js` 覆盖日志白名单和敏感内容不泄露 | 通过 |
 | 13 | 用户界面没有工程术语泄露 | `tests/phase4-ux.test.js` 覆盖可见文案；源码注释/技术文档允许解释工程词 | 通过 |
@@ -194,12 +195,36 @@ docker compose --project-directory "$PWD" -f <临时compose文件> -p kairos-pha
 
 结果：长时间停在 `node:20-alpine` 元数据拉取阶段，已中断；未留下运行容器。
 
+Docker 实启复验：
+
+```bash
+docker pull node:20-alpine
+docker compose -f /private/tmp/kairos-finance-compose-test.yml -p kairos-phase7-test up -d --build
+docker compose -f /private/tmp/kairos-finance-compose-test.yml -p kairos-phase7-test ps
+curl -sS http://127.0.0.1:3107/api/health
+curl -sS -i -X POST http://127.0.0.1:3107/api/ocr -H 'Content-Type: application/json' --data '{"image":"data:image/png;base64,Zm9v"}'
+docker compose -f /private/tmp/kairos-finance-compose-test.yml -p kairos-phase7-test logs --tail=120 kairos-finance
+docker compose -f /private/tmp/kairos-finance-compose-test.yml -p kairos-phase7-test down
+```
+
+结果：构建、启动、健康检查、无凭证 403 与脱敏日志均通过；测试容器、网络和临时 env/compose 文件已清理。
+
+真实样本输入复验：
+
+```bash
+pdftoppm -png -singlefile "tools/test doc/单项目发票 test.pdf" /private/tmp/kairos-real-invoice-sample
+pdftoppm -jpeg -singlefile "tools/test doc/单项目发票 test.pdf" /private/tmp/kairos-real-invoice-sample
+node /private/tmp/kairos-real-sample-check.mjs
+```
+
+结果：由真实 PDF 发票样本派生的 PNG 与 JPEG 均通过 `/api/ocr` 生产鉴权路径和 mock OCR service，分别覆盖 `mode=normal` 与 `mode=high_accuracy`；未调用真实 DashScope，未外发发票内容；临时文件已清理。
+
 ## 安全注意事项
 
 README 当前 HEAD 已移除 `sk-...` 形态样例，但历史提交中曾出现真实形态凭证。应在真实环境中轮换或废止对应凭证。未执行历史重写，因为这会改变 Git 历史，需要单独授权。
 
 ## 后续建议
 
-1. 在可访问 Docker Hub 或已有 `node:20-alpine` 基础镜像的环境中重跑 Docker Compose 启动与 `/api/health`。
-2. 使用真实内部发票样本补充 JPG、PNG、PDF 三类人工回归。
+1. 使用真实 DashScope 凭证和经授权的内部发票样本补跑端到端 OCR；当前自动化避免外发真实发票内容。
+2. 使用浏览器自动化或人工窗口补跑真实 PDF 文件在前端 PDF.js 上传转换链路中的表现。
 3. 若未来要完全去 CDN 或迁移 Vite，应单独立项，先拆浏览器 Babel 与 Tailwind CDN。
