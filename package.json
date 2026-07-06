@@ -1,9 +1,15 @@
 {
-  "name": "yellow-bird-finance",
+  "name": "kairos-finance",
   "version": "1.2.4-alpha",
   "type": "module",
   "description": "Reimbursement management tool with OCR",
   "scripts": {
-    "deploy": "vercel --prod"
+    "dev": "node server.js",
+    "start": "node server.js",
+    "test": "node --test tests/*.test.js",
+    "deploy:vercel": "vercel --prod"
+  },
+  "engines": {
+    "node": ">=20"
   }
 }
