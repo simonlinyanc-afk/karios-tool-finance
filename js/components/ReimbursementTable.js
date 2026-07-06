@@ -1,17 +1,85 @@
 // ReimbursementTable component
-// Depends on React, icons.js, and utils.js being loaded BEFORE this script
+// Depends on React, icons.js, and utilities being loaded before this script.
+
+const reimbursementStatusMetaMap = {
+    processing: { label: '正在识别', className: 'bg-blue-500/15 text-blue-300 border-blue-400/30' },
+    needs_review: { label: '建议检查', className: 'bg-yellow-500/15 text-yellow-200 border-yellow-400/30' },
+    ready: { label: '已完成', className: 'bg-emerald-500/15 text-emerald-300 border-emerald-400/30' },
+    failed: { label: '识别失败', className: 'bg-red-500/15 text-red-300 border-red-400/30' }
+};
+
+const recognitionSourceLabels = {
+    cache: '已从本地记录恢复',
+    high_accuracy: '已使用增强识别',
+    manual: '已手动修改'
+};
+
+const getRecognitionSourceLabel = item => {
+    if (item.recognitionSource === 'cache' || item.isCached) return recognitionSourceLabels.cache;
+    if (item.recognitionSource === 'high_accuracy') return recognitionSourceLabels.high_accuracy;
+    if (item.recognitionSource === 'manual') return recognitionSourceLabels.manual;
+    if (item.recognitionMeta?.fallbackUsed) return '系统已自动再识别一次';
+    return '';
+};
+
+const MoneyInput = React.memo(({ value, name, ariaLabel, onCommit }) => {
+    const formattedValue = window.formatEditableMoney(value);
+    const [rawValue, setRawValue] = React.useState(formattedValue);
+    const isEditingRef = React.useRef(false);
+
+    React.useEffect(() => {
+        if (!isEditingRef.current) setRawValue(formattedValue);
+    }, [formattedValue]);
+
+    return (
+        <input
+            type="text"
+            inputMode="decimal"
+            autoComplete="off"
+            className="input-modern px-3 py-1.5 rounded text-sm w-full text-right tabular-nums"
+            value={isEditingRef.current ? rawValue : formattedValue}
+            name={name}
+            aria-label={ariaLabel}
+            onFocus={() => {
+                isEditingRef.current = true;
+                setRawValue(String(value ?? ''));
+            }}
+            onChange={event => setRawValue(event.target.value)}
+            onBlur={() => {
+                isEditingRef.current = false;
+                onCommit(rawValue);
+                setRawValue(window.formatEditableMoney(rawValue));
+            }}
+            onKeyDown={event => {
+                if (event.key === 'Enter') event.currentTarget.blur();
+            }}
+        />
+    );
+});
+
+const areInvoiceRowPropsEqual = (previous, next) => (
+    previous.item === next.item
+    && previous.rowIndex === next.rowIndex
+    && previous.expanded === next.expanded
+    && previous.visibleColumns === next.visibleColumns
+);
+
+const MemoizedInvoiceRow = React.memo(
+    ({ renderRow }) => renderRow(),
+    areInvoiceRowPropsEqual
+);
 
 window.ReimbursementTable = ({
     items,
     columns,
     setColumns,
-    toggleRow,
+    toggleRow: toggleRowProp,
     expandedRows,
-    updateItem,
-    deleteItem,
-    handleImageUpload,
-    setOcrConfirmation,
-    setPdfPreviewUrl,
+    updateItem: updateItemProp,
+    deleteItem: deleteItemProp,
+    handleImageUpload: handleImageUploadProp,
+    handlePrimaryImageUpload: handlePrimaryImageUploadProp,
+    setPdfPreviewUrl: setPdfPreviewUrlProp,
     addNewRow,
     setShowColumnManager,
     setShowExportPreview,
@@ -27,6 +95,31 @@ window.ReimbursementTable = ({
 
     // Sort State
     const [sortConfig, setSortConfig] = React.useState({ key: null, direction: 'asc' });
+    const handlerRef = React.useRef({});
+    handlerRef.current = {
+        toggleRow: toggleRowProp,
+        updateItem: updateItemProp,
+        deleteItem: deleteItemProp,
+        handleImageUpload: handleImageUploadProp,
+        handlePrimaryImageUpload: handlePrimaryImageUploadProp,
+        setPdfPreviewUrl: setPdfPreviewUrlProp
+    };
+    const stableRowActions = React.useMemo(() => ({
+        toggleRow: (...args) => handlerRef.current.toggleRow(...args),
+        updateItem: (...args) => handlerRef.current.updateItem(...args),
+        deleteItem: (...args) => handlerRef.current.deleteItem(...args),
+        handleImageUpload: (...args) => handlerRef.current.handleImageUpload(...args),
+        handlePrimaryImageUpload: (...args) => handlerRef.current.handlePrimaryImageUpload(...args),
+        setPdfPreviewUrl: (...args) => handlerRef.current.setPdfPreviewUrl(...args)
+    }), []);
+    const {
+        toggleRow,
+        updateItem,
+        deleteItem,
+        handleImageUpload,
+        handlePrimaryImageUpload,
+        setPdfPreviewUrl
+    } = stableRowActions;
 
     const handleSort = (key) => {
         let direction = 'asc';
@@ -76,6 +169,48 @@ window.ReimbursementTable = ({
 
         setItems(sortedItems);
     };
+
+    const getStatusMeta = (item) => {
+        if (item.status && reimbursementStatusMetaMap[item.status]) {
+            return reimbursementStatusMetaMap[item.status];
+        }
+        return reimbursementStatusMetaMap.needs_review;
+    };
+
+    const visibleColumns = React.useMemo(() => columns.filter(column => column.visible), [columns]);
+
+    const focusFirstEditor = itemId => {
+        if (!expandedRows.has(itemId)) toggleRow(itemId);
+        setTimeout(() => {
+            document.querySelector(`[data-review-item="${itemId}"] input, [data-review-item="${itemId}"] textarea`)?.focus();
+        }, 0);
+    };
+
+    const recognizeAgain = async (item, options) => {
+        if (!item.file) return;
+        await handlePrimaryImageUpload(item.id, item.file, {
+            previewUrl: item.previewUrl || item.preview || null,
+            ...options
+        });
+    };
+
+    const retryItem = item => recognizeAgain(item, { mode: 'normal' });
+    const enhanceItem = item => recognizeAgain(item, { mode: 'high_accuracy' });
+
+    const confirmItem = itemId => {
+        setItems(previousItems => previousItems.map(item => item.id === itemId
+            ? { ...item, warningFlags: [], status: 'ready', lastError: '' }
+            : item));
+    };
+
+    const handlePrimaryFileSelection = async (itemId, file) => {
+        if (!file) return;
+
+        if (file.type === 'application/pdf' || file.type.startsWith('image/')) {
+            await handlePrimaryImageUpload(itemId, file);
+        }
+    };
+
     // formatCurrency, convertPDFToImage are global
 
     // Items Table
@@ -86,85 +221,112 @@ window.ReimbursementTable = ({
                     <table className="table-modern">
                         <thead>
                             <tr>
-                                {columns.filter(c => c.visible).map(col => {
+                                {visibleColumns.map(col => {
                                     const isSortable = ['amount', 'date', 'category'].includes(col.id);
+                                    const ariaSort = sortConfig.key === col.id
+                                        ? (sortConfig.direction === 'asc' ? 'ascending' : 'descending')
+                                        : 'none';
                                     return (
-                                        <th key={col.id} className="font-cn whitespace-nowrap sticky top-0 bg-[#141414] z-50 px-4 py-3">
-                                            <div className={`flex items-center gap-1 ${isSortable ? 'cursor-pointer hover:text-white group' : ''}`}
-                                                onClick={() => isSortable && handleSort(col.id)}>
-                                                {col.label}
-                                                {isSortable && (
+                                        <th
+                                            key={col.id}
+                                            className="font-cn whitespace-nowrap sticky top-0 bg-[#141414] z-10 px-4 py-3"
+                                            aria-sort={isSortable ? ariaSort : undefined}
+                                        >
+                                            {isSortable ? (
+                                                <button
+                                                    type="button"
+                                                    className="flex items-center gap-1 hover:text-white group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400 rounded"
+                                                    onClick={() => handleSort(col.id)}
+                                                    aria-label={`按${col.label}排序`}
+                                                >
+                                                    {col.label}
                                                     <span className={`transition-opacity ${sortConfig.key === col.id ? 'opacity-100 text-yellow-400' : 'opacity-30 group-hover:opacity-70'}`}>
                                                         {sortConfig.key === col.id ? (
-                                                            sortConfig.direction === 'asc' ? <ChevronDown size={14} className="transform rotate-180" /> : <ChevronDown size={14} />
+                                                            sortConfig.direction === 'asc' ? <ChevronDown aria-hidden="true" size={14} className="transform rotate-180" /> : <ChevronDown aria-hidden="true" size={14} />
                                                         ) : (
-                                                            <ArrowUpDown size={14} />
+                                                            <ArrowUpDown aria-hidden="true" size={14} />
                                                         )}
                                                     </span>
-                                                )}
-                                            </div>
+                                                </button>
+                                            ) : col.label}
                                         </th>
                                     );
                                 })}
                             </tr>
                         </thead>
                         <tbody>
-                            {items.map(item => (
-                                <React.Fragment key={item.id}>
-                                    <tr>
-                                        {columns.filter(c => c.visible).map(col => (
+                            {items.map((item, rowIndex) => (
+                                <MemoizedInvoiceRow
+                                    key={item.id}
+                                    item={item}
+                                    rowIndex={rowIndex}
+                                    expanded={expandedRows.has(item.id)}
+                                    visibleColumns={visibleColumns}
+                                    renderRow={() => (
+                                <React.Fragment>
+                                    <tr
+                                        className="invoice-table-row"
+                                        style={{ contentVisibility: 'auto', containIntrinsicSize: '0 72px' }}
+                                    >
+                                        {visibleColumns.map(col => (
                                             <td key={col.id} className={col.width || ''}>
                                                 {/* Render Content Based on Column ID */}
                                                 {col.id === 'preview' && (
-                                                    !item.previewUrl ? (
-                                                        <label
-                                                            className="w-12 h-12 bg-[#1a1a1a] rounded flex items-center justify-center cursor-pointer hover:bg-[#2a2a2a] border border-dashed border-gray-700"
-                                                            onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
-                                                            onDrop={async (e) => {
-                                                                e.preventDefault();
-                                                                e.stopPropagation();
-                                                                let file = e.dataTransfer.files[0];
-                                                                if (file) {
-                                                                    if (file.type === 'application/pdf') {
-                                                                        file = await convertPDFToImage(file);
-                                                                    }
-                                                                    if (file && file.type.startsWith('image/')) {
-                                                                        const url = URL.createObjectURL(file);
-                                                                        setOcrConfirmation({ show: true, itemId: item.id, file: file, imageUrl: url });
-                                                                    }
-                                                                }
-                                                            }}
-                                                        >
-                                                            <Upload size={16} className="text-gray-500" />
-                                                            <input type="file" className="hidden" accept="image/*,application/pdf" onChange={async (e) => {
-                                                                let file = e.target.files[0];
-                                                                if (file) {
-                                                                    if (file.type === 'application/pdf') {
-                                                                        file = await convertPDFToImage(file);
-                                                                    }
-                                                                    if (file && file.type.startsWith('image/')) {
-                                                                        const url = URL.createObjectURL(file);
-                                                                        setOcrConfirmation({ show: true, itemId: item.id, file: file, imageUrl: url });
-                                                                    }
-                                                                }
-                                                            }} />
-                                                        </label>
-                                                    ) : (
-                                                        <div className="relative group w-12 h-12">
-                                                            <img src={item.previewUrl}
-                                                                className="w-12 h-12 object-cover rounded cursor-pointer border border-gray-700" onClick={() =>
-                                                                    setPdfPreviewUrl(item.previewUrl)} alt="invoice" />
-                                                            <button onClick={(e) => {
-                                                                e.stopPropagation(); updateItem(item.id, 'previewUrl', null);
-                                                                updateItem(item.id, 'file', null);
-                                                            }}
-                                                                className="absolute -top-1 -right-1 bg-black/80 text-white rounded-full p-0.5 opacity-0
-                      group-hover:opacity-100 transition"
-                                                            >
-                                                                <X size={10} />
-                                                            </button>
-                                                        </div>
-                                                    )
+                                                    (() => {
+                                                        const statusMeta = getStatusMeta(item);
+
+                                                        return (
+                                                            <div className="flex flex-col items-center gap-2">
+                                                                {!item.previewUrl ? (
+                                                                    <label
+                                                                        className="w-12 h-12 bg-[#1a1a1a] rounded flex items-center justify-center cursor-pointer hover:bg-[#2a2a2a] border border-dashed border-gray-700"
+                                                                        onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                                                                        onDrop={async (e) => {
+                                                                            e.preventDefault();
+                                                                            e.stopPropagation();
+                                                                            await handlePrimaryFileSelection(item.id, e.dataTransfer.files[0]);
+                                                                        }}
+                                                                    >
+                                                                        <Upload aria-hidden="true" size={16} className="text-gray-500" />
+                                                                        <input
+                                                                            type="file"
+                                                                            autoComplete="off"
+                                                                            className="sr-only"
+                                                                            accept="image/jpeg,image/png,application/pdf"
+                                                                            name={`invoice-preview-${item.id}`}
+                                                                            aria-label={`为第 ${rowIndex + 1} 行选择发票图片`}
+                                                                            onChange={async (e) => handlePrimaryFileSelection(item.id, e.target.files[0])}
+                                                                        />
+                                                                    </label>
+                                                                ) : (
+                                                                    <div className="relative group w-12 h-12">
+                                                                        <button
+                                                                            type="button"
+                                                                            className="w-12 h-12 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400"
+                                                                            onClick={() => setPdfPreviewUrl(item.previewUrl)}
+                                                                            aria-label={`预览第 ${rowIndex + 1} 行发票`}
+                                                                        >
+                                                                            <img src={item.previewUrl} width={48} height={48}
+                                                                                className="w-12 h-12 object-cover rounded border border-gray-700" alt="发票缩略图" />
+                                                                        </button>
+                                                                        <button type="button" onClick={(e) => {
+                                                                            e.stopPropagation(); updateItem(item.id, 'previewUrl', null);
+                                                                            updateItem(item.id, 'file', null);
+                                                                        }}
+                                                                            className="absolute -top-1 -right-1 bg-black/80 text-white rounded-full p-0.5 opacity-0
+                          group-hover:opacity-100 focus:opacity-100 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400"
+                                                                            aria-label={`删除第 ${rowIndex + 1} 行发票图片`}
+                                                                        >
+                                                                            <X aria-hidden="true" size={10} />
+                                                                        </button>
+                                                                    </div>
+                                                                )}
+                                                                <span className={`px-1.5 py-0.5 text-[10px] rounded-full border whitespace-nowrap ${statusMeta.className}`}>
+                                                                    {statusMeta.label}
+                                                                </span>
+                                                            </div>
+                                                        );
+                                                    })()
                                                 )}
 
                                                 {col.id === 'orderImage' && (
@@ -187,8 +349,9 @@ window.ReimbursementTable = ({
                                                                 }
                                                             }}
                                                         >
-                                                            <Upload size={16} className="text-gray-500" />
-                                                            <input type="file" className="hidden" accept="image/*,application/pdf" onChange={async (e) => {
+                                                            <Upload aria-hidden="true" size={16} className="text-gray-500" />
+                                                            <input type="file" autoComplete="off" className="sr-only" accept="image/jpeg,image/png,application/pdf"
+                                                                name={`invoice-order-${item.id}`} aria-label={`为第 ${rowIndex + 1} 行选择订单图`} onChange={async (e) => {
                                                                 let file = e.target.files[0];
                                                                 if (file) {
                                                                     if (file.type === 'application/pdf') {
@@ -202,14 +365,17 @@ window.ReimbursementTable = ({
                                                         </label>
                                                     ) : (
                                                         <div className="relative group w-12 h-12">
-                                                            <img src={item.orderImage}
-                                                                className="w-12 h-12 object-cover rounded cursor-pointer border border-gray-700" onClick={() =>
-                                                                    setPdfPreviewUrl(item.orderImage)} alt="order" />
-                                                            <button onClick={(e) => { e.stopPropagation(); updateItem(item.id, 'orderImage', null); }}
+                                                            <button type="button" className="w-12 h-12 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400"
+                                                                onClick={() => setPdfPreviewUrl(item.orderImage)} aria-label={`预览第 ${rowIndex + 1} 行订单图`}>
+                                                                <img src={item.orderImage} width={48} height={48}
+                                                                    className="w-12 h-12 object-cover rounded border border-gray-700" alt="订单缩略图" />
+                                                            </button>
+                                                            <button type="button" onClick={(e) => { e.stopPropagation(); updateItem(item.id, 'orderImage', null); }}
                                                                 className="absolute -top-1 -right-1 bg-black/80 text-white rounded-full p-0.5 opacity-0
-                      group-hover:opacity-100 transition"
+                      group-hover:opacity-100 focus:opacity-100 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400"
+                                                                aria-label={`删除第 ${rowIndex + 1} 行订单图`}
                                                             >
-                                                                <X size={10} />
+                                                                <X aria-hidden="true" size={10} />
                                                             </button>
                                                         </div>
                                                     )
@@ -234,8 +400,9 @@ window.ReimbursementTable = ({
                                                                 }
                                                             }}
                                                         >
-                                                            <Upload size={16} className="text-gray-500" />
-                                                            <input type="file" className="hidden" accept="image/*,application/pdf" onChange={async (e) => {
+                                                            <Upload aria-hidden="true" size={16} className="text-gray-500" />
+                                                            <input type="file" autoComplete="off" className="sr-only" accept="image/jpeg,image/png,application/pdf"
+                                                                name={`invoice-payment-${item.id}`} aria-label={`为第 ${rowIndex + 1} 行选择支付凭证`} onChange={async (e) => {
                                                                 let file = e.target.files[0];
                                                                 if (file) {
                                                                     if (file.type === 'application/pdf') {
@@ -249,14 +416,17 @@ window.ReimbursementTable = ({
                                                         </label>
                                                     ) : (
                                                         <div className="relative group w-12 h-12">
-                                                            <img src={item.paymentProof}
-                                                                className="w-12 h-12 object-cover rounded cursor-pointer border border-gray-700" onClick={() =>
-                                                                    setPdfPreviewUrl(item.paymentProof)} alt="payment" />
-                                                            <button onClick={(e) => { e.stopPropagation(); updateItem(item.id, 'paymentProof', null); }}
+                                                            <button type="button" className="w-12 h-12 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400"
+                                                                onClick={() => setPdfPreviewUrl(item.paymentProof)} aria-label={`预览第 ${rowIndex + 1} 行支付凭证`}>
+                                                                <img src={item.paymentProof} width={48} height={48}
+                                                                    className="w-12 h-12 object-cover rounded border border-gray-700" alt="支付凭证缩略图" />
+                                                            </button>
+                                                            <button type="button" onClick={(e) => { e.stopPropagation(); updateItem(item.id, 'paymentProof', null); }}
                                                                 className="absolute -top-1 -right-1 bg-black/80 text-white rounded-full p-0.5 opacity-0
-                      group-hover:opacity-100 transition"
+                      group-hover:opacity-100 focus:opacity-100 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400"
+                                                                aria-label={`删除第 ${rowIndex + 1} 行支付凭证`}
                                                             >
-                                                                <X size={10} />
+                                                                <X aria-hidden="true" size={10} />
                                                             </button>
                                                         </div>
                                                     )
@@ -310,22 +480,28 @@ window.ReimbursementTable = ({
                                                                         handleAppendBatch(e.dataTransfer.files);
                                                                     }}
                                                                 >
-                                                                    <Upload size={16} className="text-gray-500" />
-                                                                    <input type="file" className="hidden" multiple accept="image/*,application/pdf" onChange={(e) => handleAppendBatch(e.target.files)} />
+                                                                    <Upload aria-hidden="true" size={16} className="text-gray-500" />
+                                                                    <input type="file" autoComplete="off" className="sr-only" multiple accept="image/jpeg,image/png,application/pdf"
+                                                                        name={`invoice-attachments-${item.id}`} aria-label={`为第 ${rowIndex + 1} 行选择其他附件`}
+                                                                        onChange={(e) => handleAppendBatch(e.target.files)} />
                                                                 </label>
                                                             );
                                                         } else {
                                                             return (
                                                                 <div className="flex items-center gap-4">
-                                                                    <div className="relative group w-12 h-12 shrink-0 cursor-pointer" onClick={() => setPdfPreviewUrl(proofs[0])}>
+                                                                    <div className="relative group w-12 h-12 shrink-0">
                                                                         {/* Stack Effect */}
                                                                         {proofs.length > 1 && (
                                                                             <div className="absolute top-1 -right-1 w-12 h-12 bg-[#333] rounded border border-gray-600 z-0 rotate-6 transform"></div>
                                                                         )}
                                                                         {/* Main Image */}
-                                                                        <img src={proofs[0]}
-                                                                            className="relative z-10 w-12 h-12 object-cover rounded border border-gray-700 bg-[#1a1a1a]"
-                                                                            alt="attachment" />
+                                                                        <button type="button" onClick={() => setPdfPreviewUrl(proofs[0])}
+                                                                            className="relative z-10 w-12 h-12 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400"
+                                                                            aria-label={`预览第 ${rowIndex + 1} 行其他附件`}>
+                                                                            <img src={proofs[0]} width={48} height={48}
+                                                                                className="w-12 h-12 object-cover rounded border border-gray-700 bg-[#1a1a1a]"
+                                                                                alt="附件缩略图" />
+                                                                        </button>
 
                                                                         {/* Count Badge */}
                                                                         {proofs.length > 1 && (
@@ -335,11 +511,12 @@ window.ReimbursementTable = ({
                                                                         )}
 
                                                                         {/* Clear Button */}
-                                                                        <button onClick={(e) => { e.stopPropagation(); updateItem(item.id, 'attachments', null); }}
+                                                                        <button type="button" onClick={(e) => { e.stopPropagation(); updateItem(item.id, 'attachments', null); }}
                                                                             className="absolute -top-2 -left-2 bg-black/80 text-white rounded-full p-0.5 opacity-0
-                                  group-hover:opacity-100 transition z-30"
+                                  group-hover:opacity-100 focus:opacity-100 transition-opacity z-30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400"
+                                                                            aria-label={`清空第 ${rowIndex + 1} 行其他附件`}
                                                                         >
-                                                                            <X size={10} />
+                                                                            <X aria-hidden="true" size={10} />
                                                                         </button>
                                                                     </div>
 
@@ -353,8 +530,10 @@ window.ReimbursementTable = ({
                                                                                 handleAppendBatch(e.dataTransfer.files);
                                                                             }}
                                                                         >
-                                                                            <Plus size={16} className="text-gray-500" />
-                                                                            <input type="file" className="hidden" multiple accept="image/*,application/pdf" onChange={(e) => handleAppendBatch(e.target.files)} />
+                                                                            <Plus aria-hidden="true" size={16} className="text-gray-500" />
+                                                                            <input type="file" autoComplete="off" className="sr-only" multiple accept="image/jpeg,image/png,application/pdf"
+                                                                                name={`invoice-attachments-more-${item.id}`} aria-label={`为第 ${rowIndex + 1} 行继续添加附件`}
+                                                                                onChange={(e) => handleAppendBatch(e.target.files)} />
                                                                         </label>
                                                                     )}
                                                                 </div>
@@ -364,7 +543,8 @@ window.ReimbursementTable = ({
                                                 )}
 
                                                 {col.id === 'date' && (
-                                                    <input type="date" className="input-modern px-3 py-1.5 rounded text-sm w-full" value={item.date}
+                                                    <input type="date" autoComplete="off" className="input-modern px-3 py-1.5 rounded text-sm w-full" value={item.date}
+                                                        name={`invoice-date-${item.id}`} aria-label={`第 ${rowIndex + 1} 行发票日期`}
                                                         onChange={e => updateItem(item.id, 'date', e.target.value)}
                                                     />
                                                 )}
@@ -373,6 +553,9 @@ window.ReimbursementTable = ({
                                                     <textarea
                                                         className="input-modern px-3 py-1.5 rounded text-sm w-full resize-y min-h-[34px] leading-tight"
                                                         value={item.description}
+                                                        autoComplete="off"
+                                                        name={`invoice-description-${item.id}`}
+                                                        aria-label={`第 ${rowIndex + 1} 行摘要说明`}
                                                         rows={1}
                                                         onChange={e => updateItem(item.id, 'description', e.target.value)}
                                                         style={{ fieldSizing: 'content' }} // Modern browser support for auto-grow
@@ -385,38 +568,50 @@ window.ReimbursementTable = ({
 
                                                 {['category', 'itemName', 'specification', 'unit', 'taxRate', 'invoiceNumber',
                                                     'buyerName', 'sellerName', 'remarks'].includes(col.id) && (
-                                                        <input type="text" className="input-modern px-3 py-1.5 rounded text-sm w-full" value={item[col.id]}
+                                                        <input type="text" autoComplete="off" className={`input-modern px-3 py-1.5 rounded text-sm w-full ${col.id === 'invoiceNumber' ? 'font-mono tabular-nums' : ''}`} value={item[col.id]}
+                                                            name={`invoice-${col.id}-${item.id}`}
+                                                            aria-label={`第 ${rowIndex + 1} 行${col.label}`}
                                                             onChange={e => updateItem(item.id, col.id, e.target.value)}
                                                         />
                                                     )}
 
-                                                {['amount', 'quantity', 'unitPrice', 'subtotal', 'totalWithTax', 'tax'].includes(col.id) && (
-                                                    <input type="number" step="0.01"
-                                                        className="input-modern px-3 py-1.5 rounded text-sm w-full text-right" value={item[col.id]}
-                                                        // Financial fields: Pass raw string to let calculateTax handle parsing/formatting
-                                                        onChange={e => updateItem(item.id, col.id,
-                                                            ['amount', 'subtotal', 'tax', 'totalWithTax'].includes(col.id)
-                                                                ? e.target.value
-                                                                : (parseFloat(e.target.value) || 0)
-                                                        )}
+                                                {['amount', 'subtotal', 'totalWithTax', 'tax'].includes(col.id) && (
+                                                    <MoneyInput
+                                                        value={item[col.id]}
+                                                        name={`invoice-${col.id}-${item.id}`}
+                                                        ariaLabel={`第 ${rowIndex + 1} 行${col.label}`}
+                                                        onCommit={value => updateItem(item.id, col.id, value)}
+                                                    />
+                                                )}
+
+                                                {['quantity', 'unitPrice'].includes(col.id) && (
+                                                    <input type="number" step="0.01" inputMode="decimal" autoComplete="off"
+                                                        className="input-modern px-3 py-1.5 rounded text-sm w-full text-right tabular-nums" value={item[col.id]}
+                                                        name={`invoice-${col.id}-${item.id}`}
+                                                        aria-label={`第 ${rowIndex + 1} 行${col.label}`}
+                                                        onChange={e => updateItem(item.id, col.id, parseFloat(e.target.value) || 0)}
                                                     />
                                                 )}
 
                                                 {col.id === 'actions' && (
                                                     <div className="flex gap-2">
-                                                        <button onClick={() => toggleRow(item.id)}
-                                                            className="p-1.5 hover:bg-[#2a2a2a] rounded"
-                                                            title="展开详情"
+                                                        <button type="button" onClick={() => toggleRow(item.id)}
+                                                            className="p-1.5 hover:bg-[#2a2a2a] rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400"
+                                                            aria-label={`${expandedRows.has(item.id) ? '收起' : '展开'}第 ${rowIndex + 1} 行详情`}
+                                                            aria-expanded={expandedRows.has(item.id)}
                                                         >
                                                             {expandedRows.has(item.id) ?
-                                                                <ChevronUp size={16} /> :
-                                                                <ChevronDown size={16} />}
+                                                                <ChevronUp aria-hidden="true" size={16} /> :
+                                                                <ChevronDown aria-hidden="true" size={16} />}
                                                         </button>
-                                                        <button onClick={() => deleteItem(item.id)}
-                                                            className="p-1.5 hover:bg-red-500/10 text-red-400 rounded"
-                                                            title="删除"
+                                                        <button type="button" onClick={() => {
+                                                            if (!window.confirm('要删除这条发票记录吗？删除后无法恢复。')) return;
+                                                            deleteItem(item.id);
+                                                        }}
+                                                            className="p-1.5 hover:bg-red-500/10 text-red-400 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400"
+                                                            aria-label={`删除第 ${rowIndex + 1} 行`}
                                                         >
-                                                            <X size={16} />
+                                                            <X aria-hidden="true" size={16} />
                                                         </button>
                                                     </div>
                                                 )}
@@ -426,10 +621,62 @@ window.ReimbursementTable = ({
                                     {
                                         expandedRows.has(item.id) && (
                                             <tr>
-                                                <td colSpan={columns.filter(c => c.visible).length} className="bg-[#0f0f0f]">
-                                                    <div className="p-4 grid grid-cols-1 md:grid-cols-3 gap-4">
-                                                        <div className="md:col-span-3 pb-2 border-b border-[#2a2a2a] mb-2 font-cn text-xs text-gray-400">
-                                                            详细信息
+                                                <td colSpan={visibleColumns.length} className="bg-[#0f0f0f]">
+                                                    <div className="p-4 grid grid-cols-1 md:grid-cols-3 gap-4" data-review-item={item.id}>
+                                                        <div className="md:col-span-3 pb-4 border-b border-[#2a2a2a] mb-2 font-cn">
+                                                            <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3">
+                                                                <div>
+                                                                    <div className="flex items-center gap-2">
+                                                                        <span className={`px-2 py-1 text-xs rounded-full border ${getStatusMeta(item).className}`}>
+                                                                            {getStatusMeta(item).label}
+                                                                        </span>
+                                                                        {getRecognitionSourceLabel(item) && (
+                                                                            <span className="text-xs text-gray-400">{getRecognitionSourceLabel(item)}</span>
+                                                                        )}
+                                                                    </div>
+                                                                    {Array.isArray(item.warningFlags) && item.warningFlags.length > 0 && (
+                                                                        <ul className="mt-2 space-y-1 text-xs text-yellow-100" aria-label={`第 ${rowIndex + 1} 行建议检查内容`}>
+                                                                            {item.warningFlags.map(flag => (
+                                                                                <li key={flag}>• {window.getWarningLabel ? window.getWarningLabel(flag) : '建议检查'}</li>
+                                                                            ))}
+                                                                        </ul>
+                                                                    )}
+                                                                    {!item.file && (item.status === 'failed' || item.status === 'needs_review') && (
+                                                                        <p className="mt-2 text-xs text-gray-500">如需再次识别，需要重新选择文件；也可直接手动修改。</p>
+                                                                    )}
+                                                                </div>
+                                                                <div className="flex flex-wrap gap-2">
+                                                                    {item.status === 'failed' && (
+                                                                        <>
+                                                                            <button type="button" disabled={!item.file} title={!item.file ? '需要重新选择文件' : undefined}
+                                                                                onClick={() => retryItem(item)} className="px-3 py-1.5 rounded bg-yellow-400 text-black text-xs font-semibold disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow-300">
+                                                                                重新识别
+                                                                            </button>
+                                                                            <button type="button" disabled={!item.file} title={!item.file ? '需要重新选择文件' : undefined}
+                                                                                onClick={() => enhanceItem(item)} className="px-3 py-1.5 rounded border border-yellow-400/40 text-yellow-200 text-xs disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow-300">
+                                                                                增强识别
+                                                                            </button>
+                                                                            <button type="button" onClick={() => focusFirstEditor(item.id)} className="px-3 py-1.5 rounded border border-gray-600 text-gray-200 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow-300">
+                                                                                手动填写
+                                                                            </button>
+                                                                        </>
+                                                                    )}
+                                                                    {item.status === 'needs_review' && (
+                                                                        <>
+                                                                            <button type="button" onClick={() => confirmItem(item.id)} className="px-3 py-1.5 rounded bg-yellow-400 text-black text-xs font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow-300">
+                                                                                确认无误
+                                                                            </button>
+                                                                            <button type="button" disabled={!item.file} title={!item.file ? '需要重新选择文件' : undefined}
+                                                                                onClick={() => enhanceItem(item)} className="px-3 py-1.5 rounded border border-yellow-400/40 text-yellow-200 text-xs disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow-300">
+                                                                                增强识别
+                                                                            </button>
+                                                                            <button type="button" onClick={() => focusFirstEditor(item.id)} className="px-3 py-1.5 rounded border border-gray-600 text-gray-200 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow-300">
+                                                                                手动修改
+                                                                            </button>
+                                                                        </>
+                                                                    )}
+                                                                </div>
+                                                            </div>
                                                         </div>
                                                         {['invoiceNumber', 'buyerName', 'sellerName', 'itemName', 'specification', 'unit', 'quantity',
                                                             'unitPrice', 'taxRate', 'tax', 'remarks'].map(field => {
@@ -439,12 +686,25 @@ window.ReimbursementTable = ({
                                                                         <label className="text-xs text-gray-500 mb-1 block font-cn">{label}</label>
                                                                         {field === 'remarks' ? (
                                                                             <textarea className="input-modern px-3 py-2 rounded text-sm w-full resize-none" rows="2"
+                                                                                autoComplete="off"
+                                                                                name={`invoice-${field}-detail-${item.id}`} aria-label={`第 ${rowIndex + 1} 行${label}`}
                                                                                 value={item[field]} onChange={e => updateItem(item.id, field, e.target.value)}
+                                                                            />
+                                                                        ) : field === 'tax' ? (
+                                                                            <MoneyInput
+                                                                                value={item[field]}
+                                                                                name={`invoice-${field}-detail-${item.id}`}
+                                                                                ariaLabel={`第 ${rowIndex + 1} 行${label}`}
+                                                                                onCommit={value => updateItem(item.id, field, value)}
                                                                             />
                                                                         ) : (
                                                                             <input
                                                                                 type={['quantity', 'unitPrice', 'tax', 'amount'].includes(field) ? "number" : "text"}
-                                                                                className="input-modern px-3 py-1.5 rounded text-sm w-full"
+                                                                                autoComplete="off"
+                                                                                inputMode={['quantity', 'unitPrice', 'tax', 'amount'].includes(field) ? 'decimal' : undefined}
+                                                                                className={`input-modern px-3 py-1.5 rounded text-sm w-full ${['quantity', 'unitPrice', 'tax', 'amount'].includes(field) ? 'text-right tabular-nums' : ''} ${field === 'invoiceNumber' ? 'font-mono tabular-nums' : ''}`}
+                                                                                name={`invoice-${field}-detail-${item.id}`}
+                                                                                aria-label={`第 ${rowIndex + 1} 行${label}`}
                                                                                 value={item[field]}
                                                                                 onChange={e => updateItem(item.id, field,
                                                                                     ['amount', 'tax', 'subtotal'].includes(field)
@@ -462,6 +722,8 @@ window.ReimbursementTable = ({
                                         )
                                     }
                                 </React.Fragment>
+                                    )}
+                                />
                             ))}
                         </tbody>
                     </table>
@@ -515,33 +777,7 @@ window.ReimbursementTable = ({
                 <div className="flex items-center justify-center gap-2 text-sm">
                     <span>或</span>
                     <button
-                        onClick={() => {
-                            setItems([{
-                                id: Date.now(),
-                                date: new Date().toISOString().split('T')[0],
-                                category: '',
-                                description: '',
-                                itemName: '',
-                                specification: '',
-                                quantity: 1,
-                                unit: '',
-                                unitPrice: 0,
-                                amount: 0,
-                                invoiceNumber: '',
-                                buyerName: '',
-                                sellerName: '',
-                                remarks: '',
-                                previewUrl: null,
-                                orderImage: null,
-                                paymentProof: null,
-                                taxRate: '',
-                                tax: 0,
-                                subtotal: 0,
-                                totalWithTax: 0,
-                                isPDF: false,
-                                file: null
-                            }]);
-                        }}
+                        onClick={addNewRow}
                         className="px-4 py-2 bg-[#2a2a2a] hover:bg-[#3a3a3a] text-gray-300 rounded-lg transition font-cn"
                     >
                         添加默认空白行

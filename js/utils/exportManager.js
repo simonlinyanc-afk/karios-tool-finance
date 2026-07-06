@@ -14,7 +14,7 @@
  */
 async function exportToExcel(items, columns, reimbursementInfo, onProgress = () => { }) {
     if (typeof ExcelJS === 'undefined') {
-        alert('ExcelJS 库未加载，无法导出');
+        alert('暂时无法生成 Excel。请刷新页面后重试；仍然失败时请联系维护人员。');
         return;
     }
 
@@ -278,7 +278,7 @@ async function exportToPrint(items, columns, reimbursementInfo) {
     // 1. Open Window Immediately (Bypass Popup Blocker)
     const printWin = window.open('', '_blank');
     if (!printWin) {
-        alert('无法启动打印预览，请检查浏览器弹窗设置 (Popup Blocker)');
+        alert('浏览器没有打开打印页面。请允许当前页面打开新窗口，然后再次点击打印。');
         return;
     }
 
@@ -361,7 +361,7 @@ async function exportToPrint(items, columns, reimbursementInfo) {
     } catch (e) {
         // Handle Error
         printWin.close();
-        alert('准备打印数据失败: ' + e.message);
+        alert('暂时无法准备打印内容。请刷新页面后重试；仍然失败时请重新选择发票。');
         console.error(e);
     }
 }

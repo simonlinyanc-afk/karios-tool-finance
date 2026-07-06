@@ -253,6 +253,13 @@
         db.version(2).stores({ history: '++id, timestamp, total, count, fileHashIndex' });
         db.version(3).stores({ templates: '++id, timestamp, name' });
         db.version(4).stores({ printJobs: '++id, timestamp' }); // Match current schema
+        db.version(5).stores({
+            drafts: '++id, timestamp',
+            history: '++id, timestamp, total, count, fileHashIndex',
+            templates: '++id, timestamp, name',
+            printJobs: '++id, timestamp',
+            ocrCache: 'fileHash, updatedAt, modelVersion, promptVersion'
+        });
 
         // 从 URL 获取 jobId
         function getJobId() {
@@ -433,7 +440,7 @@
                 // 显示错误
                 document.getElementById('loading').style.display = 'none';
                 document.getElementById('error').style.display = 'block';
-                document.getElementById('error-message').textContent = error.message;
+                document.getElementById('error-message').textContent = '暂时无法加载打印内容。请返回主页面重新打开打印预览；仍然失败时请刷新页面。';
             }
         });
     </script>

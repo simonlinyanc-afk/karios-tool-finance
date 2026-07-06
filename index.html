@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Yellow Bird Finance · Kairos</title>
+  <title>Kairos Finance·黄鸟报销单系统</title>
   <link rel="icon" href="favicon.ico" type="image/x-icon">
 
   <!-- Google Fonts: Source Han Sans (思源黑体) & Plus Jakarta Sans -->
@@ -74,6 +74,32 @@
 
       100% {
         width: 90%;
+      }
+    }
+
+    .queue-progress-active {
+      animation: progress-creep 30s cubic-bezier(0.1, 0.7, 1, 0.1) forwards;
+    }
+
+    .motion-spin {
+      animation: spin 1s linear infinite;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .queue-progress-active,
+      .motion-spin,
+      .animate-fade-in,
+      .animate-pulse,
+      .animate-in,
+      .slide-in-from-top-4 {
+        animation: none !important;
+      }
+
+      *,
+      *::before,
+      *::after {
+        scroll-behavior: auto !important;
+        transition-duration: 0.01ms !important;
       }
     }
   </style>
@@ -187,13 +213,14 @@
 
       const [columns, setColumns] = useState(initialColumns);
       const [showColumnManager, setShowColumnManager] = useState(false);
+      const closeColumnManager = React.useCallback(() => setShowColumnManager(false), []);
+      const columnManagerRef = window.useModalAccessibility(showColumnManager, closeColumnManager);
       const [showExportPreview, setShowExportPreview] = useState(false);
       const [showHistory, setShowHistory] = useState(false);
       const [showDraftPrompt, setShowDraftPrompt] = useState(false);
       const [draftData, setDraftData] = useState(null);
       const [exportSource, setExportSource] = useState(null); // null = current workspace, object = history record
       const [previewTab, setPreviewTab] = useState('excel');
-
 
       const handleHistoryExport = (record) => {
         // Prepare data from record for export modal
@@ -219,7 +246,67 @@
       const [autoSaveEnabled, setAutoSaveEnabled] = useState(true);
       const [saveStatus, setSaveStatus] = useState('ready'); // 'ready', 'saving'
       const [showCloseDialog, setShowCloseDialog] = useState(false);
-      const [showToast, setShowToast] = useState(false); // v1.1.0 Toast State
+      const [toastState, setToastState] = useState({ show: false, message: '', variant: 'success' });
+      const toastTimeoutRef = React.useRef(null);
+
+      const normalizeItemForUI = (item, options = {}) => {
+        if (!window.normalizeInvoiceItem) return item;
+        return window.normalizeInvoiceItem(item, {
+          recognitionSource: options.recognitionSource || item?.recognitionSource || 'manual',
+          clearLastError: Boolean(options.clearLastError),
+          status: options.status
+        });
+      };
+
+      const normalizeItemsForUI = (nextItems = []) => nextItems.map(item => normalizeItemForUI(item));
+
+      const buildBlankItem = () => normalizeItemForUI({
+        id: Date.now() + Math.random(),
+        file: null,
+        isPDF: false,
+        previewUrl: null,
+        orderImage: null,
+        paymentProof: null,
+        attachments: [],
+        date: new Date().toISOString().split('T')[0],
+        amount: 0,
+        tax: 0,
+        category: "其他",
+        description: "",
+        itemName: "",
+        specification: "",
+        unit: "",
+        quantity: 0,
+        unitPrice: 0,
+        taxRate: "",
+        subtotal: 0,
+        totalWithTax: 0,
+        invoiceNumber: "",
+        buyerName: "",
+        sellerName: "",
+        remarks: "",
+        reimburser: reimbursementInfo.reimburser || "",
+        project: reimbursementInfo.project || ""
+      });
+
+      const triggerToast = (message, variant = 'success') => {
+        if (toastTimeoutRef.current) {
+          clearTimeout(toastTimeoutRef.current);
+        }
+
+        setToastState({ show: true, message, variant });
+        toastTimeoutRef.current = setTimeout(() => {
+          setToastState(prev => ({ ...prev, show: false }));
+        }, 3000);
+      };
+
+      useEffect(() => {
+        return () => {
+          if (toastTimeoutRef.current) {
+            clearTimeout(toastTimeoutRef.current);
+          }
+        };
+      }, []);
 
       // Auto-save Draft (v1.1.0 Enhanced)
       useEffect(() => {
@@ -263,7 +350,7 @@
 
       const handleRestoreDraft = () => {
         if (draftData) {
-          setItems(draftData.items || []);
+          setItems(normalizeItemsForUI(draftData.items || []));
           setReimbursementInfo(draftData.info || {});
           setShowDraftPrompt(false);
         }
@@ -280,7 +367,7 @@
       // v1.1.0 Project Actions
       const handleSaveProject = async () => {
         if (!items.length && !reimbursementInfo.project) {
-          alert('无可保存内容');
+          alert('当前没有可保存内容。请先添加发票或填写项目信息后再保存。');
           return;
         }
         setSaveStatus('saving');
@@ -290,8 +377,7 @@
 
           // Show Success Toast
           setSaveStatus('ready');
-          setShowToast(true);
-          setTimeout(() => setShowToast(false), 3000);
+          triggerToast('项目已归档保存', 'success');
         } else {
           setSaveStatus('ready');
         }
@@ -322,25 +408,50 @@
 
       // Process Files Logic
       const abortControllers = React.useRef(new Map());
+      const cancelledIndexesRef = React.useRef(new Set());
+      const manualEditableFields = new Set([
+        'date', 'category', 'description', 'subtotal', 'taxRate', 'tax', 'amount', 'totalWithTax',
+        'invoiceNumber', 'buyerName', 'sellerName', 'itemName', 'specification', 'quantity', 'unit',
+        'unitPrice', 'remarks', 'reimburser', 'project'
+      ]);
+
+      const replaceItemById = (targetId, nextItem) => {
+        const normalized = normalizeItemForUI(nextItem, {
+          recognitionSource: nextItem.recognitionSource || 'manual'
+        });
+
+        setItems(prevItems => prevItems.map(item => item.id === targetId ? normalized : item));
+      };
 
       const handleCancelAll = () => {
+        setProcessingQueue(prev => {
+          prev.forEach((item, index) => {
+            if (item.status === 'waiting' || item.status === 'queued' || item.status === 'processing') {
+              cancelledIndexesRef.current.add(index);
+            }
+          });
+          return prev.map(item => (
+            item.status === 'waiting' || item.status === 'queued' || item.status === 'processing'
+              ? { ...item, status: 'cancelled', progress: 0 }
+              : item
+          ));
+        });
         abortControllers.current.forEach(controller => controller.abort());
         abortControllers.current.clear();
-        setProcessingQueue([]);
         setIsProcessing(false);
-        showToast("已取消所有任务", "default");
+        triggerToast("已取消所有任务", "default");
       };
 
       const handleCancelItem = (index) => {
+        cancelledIndexesRef.current.add(index);
         const controller = abortControllers.current.get(index);
         if (controller) {
           controller.abort();
           abortControllers.current.delete(index);
-          // Update queue to show cancelled
-          setProcessingQueue(prev => prev.map((q, i) =>
-            i === index ? { ...q, status: 'cancelled' } : q
-          ));
         }
+        setProcessingQueue(prev => prev.map((q, i) =>
+          i === index ? { ...q, status: 'cancelled', progress: 0 } : q
+        ));
       };
 
       const handleFiles = async (files) => {
@@ -353,6 +464,7 @@
         setIsProcessing(true);
         // Reset Controllers
         abortControllers.current.clear();
+        cancelledIndexesRef.current.clear();
 
         const queueItems = Array.from(files).map((file, i) => ({
           id: file.name + Date.now() + i,
@@ -375,14 +487,19 @@
             files,
             reimbursementInfo,
             (index, status, progress, result) => {
+              if (cancelledIndexesRef.current.has(index)) return;
               // Streaming Update
               setProcessingQueue(prev => prev.map((q, i) =>
-                i === index ? { ...q, status: status, progress: progress } : q
+                i === index ? { ...q, status, progress, resultStatus: result?.status || q.resultStatus } : q
               ));
 
               // Dynamic Form Filling (Stream Result Immediately)
-              if (status === 'completed' && result) {
-                setItems(prev => [...prev, result]);
+              if ((status === 'completed' || status === 'failed') && result) {
+                setItems(prev => {
+                  const existingIndex = prev.findIndex(item => item.id === result.id);
+                  if (existingIndex === -1) return [...prev, result];
+                  return prev.map((item, itemIndex) => itemIndex === existingIndex ? result : item);
+                });
                 // Clear controller
                 abortControllers.current.delete(index);
               }
@@ -393,6 +510,10 @@
             },
             (index, controller) => {
               // Register Controller
+              if (cancelledIndexesRef.current.has(index)) {
+                controller.abort();
+                return;
+              }
               abortControllers.current.set(index, controller);
             }
           );
@@ -400,12 +521,22 @@
           // Check for Cached Items (Flash Match) logic moved inside? 
           // Actually, since we stream, we can just check finalResults stats.
           const cachedCount = finalResults.filter(i => i && i.isCached).length;
-          if (cachedCount > 0) {
-            showToast(`⚡ ${cachedCount} 个文件秒传成功`, "success");
+          const failedCount = finalResults.filter(i => i && i.status === 'failed').length;
+          const reviewCount = finalResults.filter(i => i && i.status === 'needs_review').length;
+
+          if (failedCount > 0) {
+            triggerToast(`有 ${failedCount} 张暂时没有识别成功，可以重新识别、使用增强识别或手动填写。`, "warning");
+          } else if (reviewCount > 0) {
+            triggerToast(`识别完成，其中 ${reviewCount} 张建议检查后再导出。`, "warning");
+          } else if (cachedCount > 0) {
+            triggerToast(`已从本地记录恢复 ${cachedCount} 张发票，请检查后继续。`, "success");
+          } else {
+            triggerToast('识别完成，可以检查明细并导出。', 'success');
           }
 
         } catch (error) {
           console.error("Batch Processing Error:", error);
+          triggerToast('本批次暂时没有完成识别。请检查文件格式后重试；仍然失败时可逐条手动填写。', "error");
         } finally {
           setIsProcessing(false);
           // Delay clearing queue to let user see "Completed" status briefly
@@ -428,10 +559,18 @@
       };
 
       // Update Item with Advanced Financial Logic
-      const updateItem = (id, field, value) => {
+      const updateItem = (id, field, value, options = {}) => {
         setItems(prevItems => prevItems.map(item => {
           if (item.id !== id) return item;
-          return calculateTax(item, field, value);
+
+          const calculatedItem = calculateTax(item, field, value);
+          const recognitionSource = options.recognitionSource
+            || (manualEditableFields.has(field) ? 'manual' : calculatedItem.recognitionSource || item.recognitionSource || 'manual');
+
+          return normalizeItemForUI(calculatedItem, {
+            recognitionSource,
+            clearLastError: manualEditableFields.has(field)
+          });
         }));
       };
 
@@ -439,7 +578,62 @@
       const handleImageUpload = (id, field, file) => {
         if (!file) return;
         const url = URL.createObjectURL(file);
-        updateItem(id, field, url);
+        updateItem(id, field, url, {
+          recognitionSource: items.find(item => item.id === id)?.recognitionSource || 'manual'
+        });
+      };
+
+      const handleManualPrimaryImage = (id, file, previewUrl = null) => {
+        setItems(prevItems => prevItems.map(item => {
+          if (item.id !== id) return item;
+          return normalizeItemForUI({
+            ...item,
+            file,
+            previewUrl: previewUrl || URL.createObjectURL(file),
+            preview: previewUrl || null
+          }, {
+            recognitionSource: 'manual'
+          });
+        }));
+      };
+
+      const handlePrimaryImageUpload = async (id, file, options = {}) => {
+        if (!file || !window.processInvoiceFile || !window.createPendingInvoiceItem) return;
+
+        const isPDF = file.type === 'application/pdf';
+        const previewUrl = options.previewUrl || (!isPDF ? URL.createObjectURL(file) : null);
+        const pendingItem = window.createPendingInvoiceItem(file, isPDF, reimbursementInfo, {
+          id,
+          previewUrl
+        });
+
+        replaceItemById(id, pendingItem);
+        setIsProcessing(true);
+
+        try {
+          const result = await window.processInvoiceFile(file, isPDF, reimbursementInfo, {
+            id,
+            previewUrl,
+            mode: options.mode || 'normal'
+          });
+          replaceItemById(id, result);
+
+          if (result.isCached) {
+            triggerToast('已从本地记录恢复，请检查后继续。', 'success');
+          } else if (options.mode === 'high_accuracy') {
+            triggerToast('增强识别已完成，请检查关键字段。', 'success');
+          }
+        } catch (error) {
+          console.error('Primary OCR Error:', error);
+          const failedItem = window.createFailedItem(file, isPDF, error, reimbursementInfo, 0, {
+            id,
+            previewUrl
+          });
+          replaceItemById(id, failedItem);
+          triggerToast('这张发票暂时没有识别成功。请重新识别、使用增强识别，或手动填写。', 'warning');
+        } finally {
+          setIsProcessing(false);
+        }
       };
 
       // Delete Item
@@ -460,32 +654,7 @@
       };
 
       const addNewRow = () => {
-        const newItem = {
-          id: Date.now(),
-          file: null,
-          isPDF: false,
-          previewUrl: null,
-          date: new Date().toISOString().split('T')[0],
-          amount: 0,
-          tax: 0,
-          category: "其他",
-          description: "",
-          itemName: "",
-          specification: "",
-          unit: "",
-          quantity: 0,
-          unitPrice: 0,
-          taxRate: "",
-          subtotal: 0,
-          totalWithTax: 0,
-          invoiceNumber: "",
-          buyerName: "",
-          sellerName: "",
-          attachments: [],
-          remarks: "",
-          reimburser: reimbursementInfo.reimburser || "",
-          project: reimbursementInfo.project || ""
-        };
+        const newItem = buildBlankItem();
         setItems([...items, newItem]);
       };
 
@@ -529,13 +698,21 @@
                     onClose={() => setShowHistory(false)}
                     onExport={handleHistoryExport}
                     onRestore={(record) => {
-                      if (record.items && record.items.length > 0) {
-                        setItems(record.items);
+                      const restoredItems = record.snapshot?.items || record.items || [];
+                      const restoredInfo = record.snapshot?.info || {
+                        reimburser: record.reimburser || '',
+                        project: record.project || '',
+                        reimbursementDate: record.date || new Date().toISOString().split('T')[0],
+                        paymentInfo: ''
+                      };
+
+                      if (restoredItems.length > 0) {
+                        setItems(normalizeItemsForUI(restoredItems));
                         setReimbursementInfo({
-                          reimburser: record.reimburser || '',
-                          project: record.project || '',
-                          reimbursementDate: record.date || new Date().toISOString().split('T')[0],
-                          paymentInfo: ''
+                          reimburser: restoredInfo.reimburser || '',
+                          project: restoredInfo.project || '',
+                          reimbursementDate: restoredInfo.reimbursementDate || new Date().toISOString().split('T')[0],
+                          paymentInfo: restoredInfo.paymentInfo || ''
                         });
                       }
                     }}
@@ -564,7 +741,7 @@
               updateItem={updateItem}
               deleteItem={deleteItem}
               handleImageUpload={handleImageUpload}
-              setOcrConfirmation={setOcrConfirmation}
+              handlePrimaryImageUpload={handlePrimaryImageUpload}
               setPdfPreviewUrl={setPdfPreviewUrl}
               addNewRow={addNewRow}
               setShowColumnManager={setShowColumnManager}
@@ -594,17 +771,19 @@
                 </a>
               </div>
               <div className="flex items-center justify-center gap-2 mb-1">
-                <span
-                  className={`transition-colors ${versionData ? 'cursor-pointer hover:text-yellow-500' : ''}`}
+                <button
+                  type="button"
+                  className={`transition-colors rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400 ${versionData ? 'cursor-pointer hover:text-yellow-500' : 'cursor-default'}`}
                   onClick={() => versionData && setShowVersionModal(true)}
-                  title="点击查看版本更新"
+                  disabled={!versionData}
+                  aria-label="查看版本更新"
                 >
                   v{versionData ? versionData.version : '...'}
-                </span>
+                </button>
                 <span>•</span>
-                <span>© Kairos Studio 2026</span>
+                <span>© Kairos Finance 2026</span>
               </div>
-              <p className="text-gray-700 mt-1">Powered by Qwen</p>
+              <p className="text-gray-700 mt-1">数据优先保存在当前浏览器中</p>
             </footer>
           </main>
 
@@ -614,18 +793,19 @@
             draftData={draftData}
             handleDiscardDraft={handleDiscardDraft}
             handleRestoreDraft={handleRestoreDraft}
+            onDismiss={() => setShowDraftPrompt(false)}
           />
           <SystemModals.CloseProjectDialog
             showCloseDialog={showCloseDialog}
             setShowCloseDialog={setShowCloseDialog}
             resetWorkspace={resetWorkspace}
           />
-          <SystemModals.ToastNotification showToast={showToast} />
+          <SystemModals.ToastNotification showToast={toastState} />
           <SystemModals.OcrConfirmationDialog
             ocrConfirmation={ocrConfirmation}
             setOcrConfirmation={setOcrConfirmation}
-            updateItem={updateItem}
-            setIsProcessing={setIsProcessing}
+            handlePrimaryImageUpload={handlePrimaryImageUpload}
+            handleManualPrimaryImage={handleManualPrimaryImage}
           />
           <SystemModals.ExportProgressModal exportProgress={exportProgress} />
 
@@ -657,20 +837,26 @@
 
           {showColumnManager && (
             <div
-              className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4 animate-fade-in"
+              className="fixed inset-0 bg-black/80 z-[100] flex items-center justify-center p-4 animate-fade-in"
               onClick={() => setShowColumnManager(false)}
             >
               <div
-                className="bg-[#1a1a1a] rounded-xl p-6 w-full max-w-md border border-[#2a2a2a] shadow-2xl"
+                ref={columnManagerRef}
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="column-manager-title"
+                tabIndex={-1}
+                className="bg-[#1a1a1a] rounded-xl p-6 w-full max-w-md border border-[#2a2a2a] shadow-2xl overscroll-contain focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400"
                 onClick={e => e.stopPropagation()}
               >
                 <div className="flex justify-between items-center mb-6 border-b border-[#2a2a2a] pb-4">
-                  <h3 className="font-bold font-cn text-lg flex items-center gap-2">
-                    <Settings size={18} className="text-yellow-500" />
+                  <h3 id="column-manager-title" className="font-bold font-cn text-lg flex items-center gap-2">
+                    <Settings aria-hidden="true" size={18} className="text-yellow-500" />
                     列显示设置
                   </h3>
-                  <button onClick={() => setShowColumnManager(false)} className="text-gray-400 hover:text-white transition bg-[#2a2a2a] hover:bg-[#333] p-1.5 rounded-full">
-                    <X size={16} />
+                  <button type="button" onClick={() => setShowColumnManager(false)} aria-label="关闭列显示设置"
+                    className="text-gray-400 hover:text-white transition-colors bg-[#2a2a2a] hover:bg-[#333] p-1.5 rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400">
+                    <X aria-hidden="true" size={16} />
                   </button>
                 </div>
                 <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-2 custom-scrollbar">
@@ -678,6 +864,8 @@
                     <label key={col.id} className={`flex items-center gap-3 p-3 rounded-lg cursor-pointer border transition border-transparent hover:border-[#333] ${col.visible ? 'bg-[#252525]' : 'bg-[#151515] opacity-60 hover:opacity-100'}`}>
                       <input
                         type="checkbox"
+                        name={`visible-column-${col.id}`}
+                        aria-label={`显示${col.label}列`}
                         checked={col.visible}
                         disabled={col.fixed}
                         onChange={() => {

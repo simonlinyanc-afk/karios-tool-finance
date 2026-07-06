@@ -1,12 +1,20 @@
 // Finance and Calculation Utilities
 // Responsible for Tax Calculations and Currency Formatting
 
-/**
- * Format currency with robust checks
- */
+const currencyFormatter = new Intl.NumberFormat('zh-CN', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+});
+
+/** Format currency with one shared formatter so large tables do not rebuild it. */
 function formatCurrency(amount) {
-    if (amount === undefined || amount === null || isNaN(Number(amount))) return "0.00";
-    return Number(amount).toFixed(2);
+    const numericAmount = Number(amount);
+    return currencyFormatter.format(Number.isFinite(numericAmount) ? numericAmount : 0);
+}
+
+function formatEditableMoney(amount) {
+    const numericAmount = Number(amount);
+    return (Number.isFinite(numericAmount) ? numericAmount : 0).toFixed(2);
 }
 
 /**
@@ -82,4 +90,5 @@ function calculateTax(item, field, value) {
 
 // Global Export
 window.formatCurrency = formatCurrency;
+window.formatEditableMoney = formatEditableMoney;
 window.calculateTax = calculateTax;

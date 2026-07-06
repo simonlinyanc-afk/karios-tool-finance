@@ -1,4 +1,4 @@
-// Icons for Yellow Bird Finance
+// Icons for Kairos Finance
 // Depends on React being loaded
 // Attached to window to be accessible across Babel scripts
 
@@ -33,6 +33,7 @@ window.ChevronDown = (props) => React.createElement(window.Icon, { path: 'm6 9 6
 window.ChevronUp = (props) => React.createElement(window.Icon, { path: 'm18 15-6-6-6 6', ...props });
 window.ChevronLeft = (props) => React.createElement(window.Icon, { path: 'm15 18-6-6 6-6', ...props });
 window.ChevronRight = (props) => React.createElement(window.Icon, { path: 'm9 18 6-6-6-6', ...props });
+window.AlertCircle = (props) => React.createElement(window.Icon, { path: 'M12 8v4M12 16h.01M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20z', ...props });
 window.Plus = (props) => React.createElement(window.Icon, { path: 'M5 12h14M12 5v14', ...props });
 window.Image = (props) => React.createElement(window.Icon, { path: 'M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M14.5 2H6a2 2 0 0 0-2 2v12l5-5 4 4 7-7V7.5L14.5 2zM14 2v6h6M9.5 9.5a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0z', ...props });
 

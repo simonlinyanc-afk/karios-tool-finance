@@ -136,6 +136,26 @@ function createOcrRequestError(payload, status) {
     return new Error(`${errorText} ${actionText}`);
 }
 
+function getUserFacingRecognitionError(error) {
+    const message = String(error?.message || '');
+    if (/PDF Conversion|PDF/i.test(message)) {
+        return '这个 PDF 暂时无法读取。请将发票页面截图后上传。';
+    }
+    if (/too large|size limit|超过大小|文件过大|图片数据超过/u.test(message)) {
+        return '文件过大，暂时无法处理。请重新导出较小的 PDF，或将发票截图后再上传。';
+    }
+    if (/timeout|timed out|超时|时间过长/u.test(message)) {
+        return '识别时间过长，系统已停止等待。请重新识别，或使用增强识别再试一次。';
+    }
+    if (/访问凭证|访问未通过|访问受限/u.test(message)) {
+        return '当前访问未通过验证。请确认你正在使用工作室内部提供的正确入口。';
+    }
+    if (/服务设置|服务配置|暂时不可用/u.test(message)) {
+        return '识别服务暂时不可用。请联系维护人员检查服务设置。';
+    }
+    return '这张发票暂时没有识别成功。请重新识别、使用增强识别，或手动填写关键信息。';
+}
+
 function normalizeWarningFlags(flags) {
     return Array.from(new Set((flags || []).filter(Boolean)));
 }
@@ -635,7 +655,8 @@ async function processInvoiceFile(file, isPDF, reimbursementInfo, options = {}) 
         const data = await response.json();
         throwIfRequestAborted();
         const result = window.processOCRResponse(data, file, isPDF, previewUrl, reimbursementInfo, index, imgData.fileHash, {
-            id: options.id
+            id: options.id,
+            recognitionSource: mode === 'high_accuracy' ? 'high_accuracy' : 'ocr'
         });
         throwIfRequestAborted();
 
@@ -713,7 +734,7 @@ function processOCRResponse(data, file, isPDF, convertedImageUrl, reimbursementI
 }
 
 function createFailedItem(file, isPDF, error, reimbursementInfo, index = 0, options = {}) {
-    const message = error?.message || String(error || 'OCR Failed');
+    const message = getUserFacingRecognitionError(error);
     return normalizeInvoiceItem({
         id: options.id || (Date.now() + index + Math.random()),
         file,
@@ -726,7 +747,7 @@ function createFailedItem(file, isPDF, error, reimbursementInfo, index = 0, opti
         subtotal: 0,
         totalWithTax: 0,
         category: '其他',
-        description: `识别失败：${file.name} (${message})`,
+        description: message,
         itemName: '',
         specification: '',
         unit: '',
@@ -762,4 +783,5 @@ window.getWarningFlagsFromItem = getWarningFlagsFromItem;
 window.getWarningLabel = getWarningLabel;
 window.getIssueSummary = getIssueSummary;
 window.getExportReadiness = getExportReadiness;
+window.getUserFacingRecognitionError = getUserFacingRecognitionError;
 window.runWithConcurrency = runWithConcurrency;
