@@ -1,0 +1,15 @@
+.git
+.gitignore
+.DS_Store
+**/.DS_Store
+node_modules
+npm-debug.log*
+
+.env
+.env.*
+!.env.production.example
+
+docs/plans/2026-04-01-agent-md-design.md
+docs/plans/2026-04-01-agent-md-implementation.md
+
+tests/ocr-core.test.js

@@ -1,68 +1,188 @@
-# Kairos-Finance 自托管部署（Phase 3 安全基线）
+# Kairos-Finance 自托管部署指南（Phase 6）
 
-> 本页先落地已批准的网络与鉴权边界。Dockerfile、Docker Compose、`/api/health`、正式回滚步骤和完整日志查看命令将在 Phase 6 补全并实测。
+本文说明正式自托管部署方式。Vercel `api/ocr.js` 仅保留兼容入口，正式运行以 `server.js` 为主。
 
-## 网络拓扑
+## 部署边界
+
+- Nginx 保护整站。
+- 浏览器不接触 `OCR_ACCESS_TOKEN`。
+- Nginx 在反代 `/api/ocr` 时注入内部 `Authorization`。
+- Node 在 `NODE_ENV=production` 时始终校验内部访问值。
+- Node 服务不得直接暴露公网。
+- 不新增 PostgreSQL、对象存储或用户系统。
+
+推荐拓扑：
 
 ```text
-内部浏览器 --HTTPS/整站访问控制--> Nginx --127.0.0.1:3000--> Node
+内部浏览器 --HTTPS/整站访问控制--> Nginx --127.0.0.1:3000--> Node server.js
                                             |
-                                            +-- 外置 OCR 鉴权片段
+                                            +-- /api/ocr 注入内部 Bearer
 ```
 
-Node 使用 `.env.production.example` 为模板，并保持 `HOST=127.0.0.1`。安全组和主机防火墙不得开放 3000 端口；只开放 Nginx 的 443，80 仅用于跳转 HTTPS。Node 服务不得直接暴露公网。
+## 环境变量
 
-## 服务器 secret 准备
+复制模板：
 
-1. 生成两个彼此独立的秘密：整站访问密码和 OCR 内部访问值。
-2. 整站密码写入 `/etc/nginx/secrets/yellow-bird-finance.htpasswd`。
-3. 在服务器上创建 `/etc/nginx/snippets/yellow-bird-finance-ocr-auth.conf`，权限设为 root:root `0600`。先按以下精确语法创建文件，再只在服务器上把尖括号占位符替换为与 Node 环境相同的真实值：
+```bash
+cp .env.production.example .env.production
+```
+
+至少配置：
+
+```bash
+NODE_ENV=production
+HOST=127.0.0.1
+PORT=3000
+OCR_ACCESS_TOKEN=<在服务器上生成的长随机值>
+QWEN_API_KEY=<DashScope API Key>
+QWEN_ENDPOINT=https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions
+QWEN_PRIMARY_MODEL=qwen3-vl-flash
+QWEN_FALLBACK_MODEL=qwen3.7-plus
+QWEN_HIGH_ACCURACY_MODEL=qwen3-vl-plus
+QWEN_ENABLE_THINKING=false
+```
+
+Docker Compose 中容器内使用 `HOST=0.0.0.0`，但端口只绑定到宿主机 `127.0.0.1:3000`，仍不对公网开放 Node。
+
+不要把真实 Token 写入 HTML、JS、构建变量、localStorage、IndexedDB、镜像层、Git 仓库或日志。
+
+## Nginx secret 准备
+
+1. 创建整站访问控制文件：
+
+   ```bash
+   sudo htpasswd -c /etc/nginx/secrets/yellow-bird-finance.htpasswd <username>
+   ```
+
+2. 创建 OCR 外置内部鉴权片段：
+
+   ```bash
+   sudo install -m 0600 -o root -g root /dev/null /etc/nginx/snippets/yellow-bird-finance-ocr-auth.conf
+   ```
+
+3. 只在服务器上写入以下内容，并把值替换为与 Node `.env.production` 完全一致的真实值：
 
    ```nginx
    proxy_set_header Authorization "Bearer <OCR_ACCESS_TOKEN>";
    ```
 
-   不要把替换后的文件复制回仓库；尖括号本身也不能保留在正式服务器配置中。
-4. 真实值不得写入仓库、镜像层、前端文件、构建变量或操作文档。
-5. 将 `deploy/nginx-yellow-bird-finance.conf` 复制到 Nginx 的 `http` 配置范围，替换域名和证书路径后执行 `nginx -t`。
+4. 不要把替换后的 snippet 复制回仓库。
 
-因为外置片段在 `/api/ocr` location 内显式设置 `Authorization`，浏览器即使自行提交同名头，也会被 Nginx 配置覆盖。`X-OCR-Token-Source` 同样被覆盖为 `nginx`，日志不会相信任意客户端提供的其他值。
+`deploy/nginx-yellow-bird-finance.conf` 中 `/api/ocr` 会覆盖浏览器传来的 `Authorization`，并设置 `X-OCR-Token-Source: nginx`。日志只记录 tokenSource 和鉴权结果，不记录 Token 内容。
 
-## Node 环境
+## Docker Compose 启动
 
-至少配置：
+构建并启动：
 
-- `NODE_ENV=production`
-- `HOST=127.0.0.1`
-- `PORT=3000`
-- 随机的 `OCR_ACCESS_TOKEN`
-- `QWEN_API_KEY`、`QWEN_ENDPOINT` 和三个模型环境变量
-- `QWEN_ENABLE_THINKING=false`
+```bash
+docker compose up -d --build
+```
 
-生产环境缺少内部访问值时，自托管服务拒绝启动。不要为了临时恢复而改成 `NODE_ENV=development`；应修复 secret 注入后重启。
+查看状态：
 
-## 鉴权验收
+```bash
+docker compose ps
+```
+
+查看健康检查：
+
+```bash
+curl http://127.0.0.1:3000/api/health
+```
+
+期望返回：
+
+```json
+{"ok":true,"service":"kairos-finance"}
+```
+
+该接口不返回 `QWEN_API_KEY`、`OCR_ACCESS_TOKEN` 或模型配置。
+
+## Nginx 启用
+
+1. 将 `deploy/nginx-yellow-bird-finance.conf` 复制到 Nginx `http` 配置范围，例如 `/etc/nginx/conf.d/kairos-finance.conf`。
+2. 替换 `server_name` 和证书路径。
+3. 确认证书已可用，80 端口只跳转 HTTPS。
+4. 检查配置：
+
+   ```bash
+   sudo nginx -t
+   ```
+
+5. 重载：
+
+   ```bash
+   sudo systemctl reload nginx
+   ```
+
+示例配置包含：
+
+- HTTPS server。
+- `client_max_body_size 15m`。
+- `/api/ocr` 的 10 秒连接超时、150 秒读写超时。
+- OCR 限流建议：每 IP 每分钟 10 次，突发 5 次。
+- `/api/ocr` 内部 Token 注入。
+- `/api/health` 代理。
+
+## 验收清单
 
 部署后至少验证：
 
-1. 未通过整站访问控制的浏览器无法加载首页。
-2. 绕过 Nginx 的外部主机无法连接 Node 端口。
-3. 直接向 Node `/api/ocr` 发送无凭证或错误凭证请求会得到 403。
-4. 通过 Nginx 上传受支持图片可以进入识别，并在日志看到 `tokenSource=nginx`、`authResult=allowed`。
-5. 超过 15m 的请求被入口拒绝；OCR 超时预算由 150 秒反代超时覆盖。
-6. 日志中搜索不到 base64 图片、访问值或上游 API Key。
+1. 未通过 Nginx 整站访问控制时不能加载首页。
+2. 外部主机无法直连 Node 端口。
+3. 直接访问 Node `/api/ocr`，无凭证或错误凭证返回 403。
+4. 经 Nginx 上传 JPG/PNG 可以进入识别。
+5. 超过 15 MB 的请求被拒绝。
+6. `GET /api/health` 不含任何 API Key 或 Token。
+7. 日志中搜索不到 base64、`QWEN_API_KEY` 或 `OCR_ACCESS_TOKEN` 的真实值。
 
-## 限流与超时
+## 日志查看
 
-示例以客户端 IP 建立共享限流区，建议从每分钟 10 次、突发 5 次开始，再根据内部并发调整。OCR 路径连接超时 10 秒，发送与读取超时 150 秒，覆盖浏览器现有的 130 秒请求预算。限流不替代整站身份校验。
+容器日志：
 
-## Phase 6 待补全项
+```bash
+docker compose logs -f kairos-finance
+```
 
-- Dockerfile 与非 root 运行用户。
-- Docker Compose、secret 挂载和健康检查。
-- `GET /api/health` 的正式响应与容器健康探针。
-- 版本化镜像、升级与回滚命令。
-- 日志查看、保留、轮换和故障排查步骤。
-- HTTPS 证书自动续期示例与部署回归测试。
+最近 200 行：
 
-在 Phase 6 完成前，本页不宣称 Docker 启动、健康检查或回滚已经验收。
+```bash
+docker compose logs --tail=200 kairos-finance
+```
+
+Nginx 日志：
+
+```bash
+sudo tail -f /var/log/nginx/access.log /var/log/nginx/error.log
+```
+
+应用日志只应包含 requestId、模型名、耗时、状态、错误类型、tokenSource 和 authResult 等安全字段。
+
+## 升级与回滚
+
+升级：
+
+```bash
+git pull --ff-only
+docker compose up -d --build
+docker compose ps
+curl http://127.0.0.1:3000/api/health
+```
+
+回滚到上一提交：
+
+```bash
+git log --oneline -5
+git checkout <previous_commit>
+docker compose up -d --build
+curl http://127.0.0.1:3000/api/health
+```
+
+如果只是新镜像启动失败，可先回到上一份 Git 版本并重建。不要通过关闭 `NODE_ENV=production` 或移除 `OCR_ACCESS_TOKEN` 来恢复服务。
+
+## 故障排查
+
+- 403：检查 Nginx snippet 与 Node `.env.production` 的 `OCR_ACCESS_TOKEN` 是否一致。
+- 413：确认 Nginx `client_max_body_size 15m` 与 Node 15 MB 限制一致；压缩图片或拆分上传。
+- 502/504：检查容器健康状态、Node 是否监听 3000、`proxy_read_timeout 150s` 是否生效。
+- 健康检查失败：运行 `docker compose logs --tail=200 kairos-finance`，确认生产环境 secret 是否缺失。

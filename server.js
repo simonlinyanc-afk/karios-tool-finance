@@ -232,6 +232,21 @@ function sendSecurityError(res, error) {
   return safeError;
 }
 
+function handleHealthRequest(req, res) {
+  if (req.method !== 'GET') {
+    sendJson(res, 405, {
+      ok: false,
+      error: 'Method not allowed'
+    });
+    return;
+  }
+
+  sendJson(res, 200, {
+    ok: true,
+    service: 'kairos-finance'
+  });
+}
+
 async function handleOcrRequest(req, res, {
   ocrService,
   env,
@@ -331,8 +346,8 @@ export function createAppServer({
     const requestId = requestIdFactory();
     const requestUrl = new URL(req.url || '/', 'http://127.0.0.1');
 
-    if (requestUrl.pathname === '/health') {
-      sendJson(res, 200, { ok: true });
+    if (requestUrl.pathname === '/api/health' || requestUrl.pathname === '/health') {
+      handleHealthRequest(req, res);
       return;
     }
 
