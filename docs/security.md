@@ -13,7 +13,8 @@
 - 浏览器不接触内部 OCR 访问凭证。
 - `/api/ocr` 反代配置从服务器上的外置、仅 root 可读片段覆盖 `Authorization` 请求头，并固定设置 `X-OCR-Token-Source: nginx`。
 - Nginx 与 Node 使用同一个随机内部值。该值只存在于服务器 secret 文件和 Node 进程环境中，绝不进入仓库。
-- `NODE_ENV=production` 时，Node 必须配置访问凭证。自托管进程缺少配置会拒绝启动；兼容函数入口会安全返回“服务暂不可用”，不会暴露配置名称。
+- `NODE_ENV=production` 时，Node 必须配置访问凭证并强制校验。自托管 `server.js` 进程缺少配置会拒绝启动；兼容函数入口会拒绝 `/api/ocr` 并安全返回“服务暂不可用”，不会暴露配置名称。
+- 在已配置生产访问值时，请求缺少或携带错误凭证一律返回 403；不会继续读取图片内容，也不会调用 OCR 服务。
 
 ### 本地开发或无反代兼容环境
 
@@ -22,6 +23,16 @@
 - 用户输入只写入 `sessionStorage`，不写入 `localStorage`、IndexedDB、HTML、JS 常量或构建变量。
 - 当前标签页或浏览器会话关闭后，浏览器保存的访问凭证失效。
 - 每次识别最多因 403 自动重试一次。取消、空输入或第二次 403 都会清理会话值，并告诉用户重新输入后再识别。
+
+### 禁止清单
+
+- 不得把真实 `OCR_ACCESS_TOKEN` 写入 HTML。
+- 不得把真实 `OCR_ACCESS_TOKEN` 写入 JS。
+- 不得把真实 `OCR_ACCESS_TOKEN` 写入前端构建变量或镜像构建参数。
+- 不得把真实 `OCR_ACCESS_TOKEN` 写入 `localStorage`。
+- 不得把真实 `OCR_ACCESS_TOKEN` 写入 IndexedDB。
+- 不得把真实 `OCR_ACCESS_TOKEN` 写入 Git 仓库。
+- 不得在应用日志、Nginx 日志或排障记录中打印真实 `OCR_ACCESS_TOKEN`。
 
 ## 请求校验顺序
 
@@ -49,6 +60,8 @@
 - `authResult`
 
 日志不记录请求 body、base64 图片、访问凭证、上游 API Key、原始错误对象、cause 或 stack。未知字段会在日志模块中直接丢弃；换行符会被清理，避免日志注入。
+
+鉴权相关日志只保留来源类别和结果类别：`tokenSource` 用于区分 `nginx`、`session`、`direct`，`authResult` 用于区分 `allowed`、`denied`、`development_bypass`、`configuration_error`。这些字段不得包含真实凭证值。
 
 ## 15 MiB 的含义
 

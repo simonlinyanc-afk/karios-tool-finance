@@ -77,6 +77,7 @@ function dispatchVercel(handler, {
 
 test('self-hosted production denies unauthenticated requests before reading the body', async () => {
   let reads = 0;
+  const lines = [];
   const stream = new Readable({
     read() {
       reads += 1;
@@ -86,6 +87,8 @@ test('self-hosted production denies unauthenticated requests before reading the 
   });
   const server = createAppServer({
     env: { NODE_ENV: 'production', OCR_ACCESS_TOKEN: TOKEN },
+    logger: createOcrLogger({ write: (line) => lines.push(line) }),
+    requestIdFactory: () => 'denied-request',
     ocrService: async () => assert.fail('service must not run')
   });
 
@@ -95,6 +98,14 @@ test('self-hosted production denies unauthenticated requests before reading the 
   assert.equal(response.payload.code, 'OCR_ACCESS_DENIED');
   assert.equal(reads, 0);
   assert.doesNotMatch(JSON.stringify(response.payload), /Bearer|Token|JSON|OCR_ACCESS_TOKEN/u);
+  assert.deepEqual(JSON.parse(lines[0]), {
+    requestId: 'denied-request',
+    status: 403,
+    errorType: 'OCR_ACCESS_DENIED',
+    tokenSource: 'direct',
+    authResult: 'denied'
+  });
+  assert.doesNotMatch(lines[0], /phase3-integration-secret|Bearer|Zm9v|base64/u);
 });
 
 test('self-hosted production accepts an injected credential and logs only safe metadata', async () => {

@@ -116,6 +116,11 @@ export function authenticateOcrRequest({ headers = {}, env = process.env } = {})
     throw securityError('SECURITY_NOT_CONFIGURED');
   }
 
+  // In production the browser must not know the internal value. A valid
+  // self-hosted request reaches this point only after Nginx has overwritten
+  // Authorization with the server-side snippet value. Local compatibility may
+  // still send a user-entered session credential, but it is never persisted by
+  // this module and is never returned to logs or clients.
   const suppliedToken = parseBearerToken(getHeader(headers, 'authorization'));
   const allowed = suppliedToken
     ? timingSafeEqual(tokenDigest(suppliedToken), tokenDigest(configuredToken))

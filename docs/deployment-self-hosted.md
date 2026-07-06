@@ -8,6 +8,8 @@
 - 浏览器不接触 `OCR_ACCESS_TOKEN`。
 - Nginx 在反代 `/api/ocr` 时注入内部 `Authorization`。
 - Node 在 `NODE_ENV=production` 时始终校验内部访问值。
+- `OCR_ACCESS_TOKEN` 缺失、占位或过短时，正式自托管 `server.js` 拒绝启动；兼容入口拒绝 `/api/ocr`。
+- 请求缺少或携带错误访问值时，`/api/ocr` 返回 403。
 - Node 服务不得直接暴露公网。
 - 不新增 PostgreSQL、对象存储或用户系统。
 
@@ -44,7 +46,7 @@ QWEN_ENABLE_THINKING=false
 
 Docker Compose 中容器内使用 `HOST=0.0.0.0`，但端口只绑定到宿主机 `127.0.0.1:3000`，仍不对公网开放 Node。
 
-不要把真实 Token 写入 HTML、JS、构建变量、localStorage、IndexedDB、镜像层、Git 仓库或日志。
+`OCR_ACCESS_TOKEN` 只作为 Node 运行时环境变量和 Nginx 服务器侧 snippet 使用。不要把真实 Token 写入 HTML、JS、前端构建变量、Docker build args、localStorage、IndexedDB、镜像层、Git 仓库或日志。
 
 ## Nginx secret 准备
 
@@ -69,6 +71,8 @@ Docker Compose 中容器内使用 `HOST=0.0.0.0`，但端口只绑定到宿主�
 4. 不要把替换后的 snippet 复制回仓库。
 
 `deploy/nginx-yellow-bird-finance.conf` 中 `/api/ocr` 会覆盖浏览器传来的 `Authorization`，并设置 `X-OCR-Token-Source: nginx`。日志只记录 tokenSource 和鉴权结果，不记录 Token 内容。
+
+正式环境下浏览器不应看到、下载或输入 `OCR_ACCESS_TOKEN`。若需要在本地开发或没有 Nginx 反代的兼容环境中临时输入访问凭证，前端只会保存到 `sessionStorage`；关闭页面或浏览器后失效，不会写入 `localStorage`、IndexedDB 或仓库文件。
 
 ## Docker Compose 启动
 
