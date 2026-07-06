@@ -143,7 +143,7 @@ Docker Compose 配置解析已通过。早期容器实启曾卡在拉取 `node:2
 | --- | --- | --- | --- |
 | 1 | JPG 上传 | `tests/phase2-browser.test.js`、`tests/phase4-ux.test.js` 使用 `invoice.jpg` / `image/jpeg` 合成 File；另将真实 PDF 发票样本第 1 页派生为 JPEG，POST 到 mock OCR `/api/ocr` 生产鉴权路径返回 200 | 自动化模拟通过；真实样本派生 JPEG API 输入通过；未外发真实 OCR |
 | 2 | PNG 上传 | `/api/ocr` 与安全测试覆盖 `data:image/png`；另将真实 PDF 发票样本第 1 页派生为 PNG，POST 到 mock OCR `/api/ocr` 生产鉴权路径返回 200 | 自动化模拟通过；真实样本派生 PNG API 输入通过；未外发真实 OCR |
-| 3 | PDF 上传 | `UploadZone` accept 包含 `application/pdf`，PDF.js 仍保留；已定位真实 PDF 样本：`tools/test doc/单项目发票 test.pdf`、`tools/test doc/多项目发票-test.pdf`、`林彦丞 3 月报销/【62580约车-19.60元-1个行程】高德打车电子发票.pdf` | 静态链路保留且真实 PDF 样本已定位；浏览器 PDF.js 实际上传仍需人工或浏览器自动化窗口复验 |
+| 3 | PDF 上传 | `UploadZone` accept 包含 `application/pdf`，PDF.js 仍保留；已定位真实 PDF 样本：`tools/test doc/单项目发票 test.pdf`、`tools/test doc/多项目发票-test.pdf`、`林彦丞 3 月报销/【62580约车-19.60元-1个行程】高德打车电子发票.pdf`；使用 headless Chrome/CDP 加载真实 `pdf.min.js`、`imageProcessor.js`、`ocrClient.js`，将真实 PDF File 交给 `processInvoiceFile(..., isPDF=true)`，mock `/api/ocr` 收到 `data:image/jpeg;base64,...` | 通过；真实 PDF 浏览器转换链路已验证，未外发真实 OCR |
 | 4 | OCR 缓存命中 | `tests/phase2-browser.test.js` 覆盖 OCR cache 保存与恢复，UI 显示“已从本地记录恢复” | 通过 |
 | 5 | `qwen3-vl-flash` 正常识别 | `tests/model-router.test.js`、`tests/ocr-service.test.js` 覆盖 primary 路由；模型名由环境变量读取 | 模拟通过；未调用真实 DashScope |
 | 6 | `qwen3.7-plus` 自动复查 | `tests/model-router.test.js`、`tests/ocr-service.test.js` 覆盖 primary 失败、校验失败、JSON 解析失败后复查 | 模拟通过；未调用真实 DashScope |
@@ -219,6 +219,16 @@ node /private/tmp/kairos-real-sample-check.mjs
 
 结果：由真实 PDF 发票样本派生的 PNG 与 JPEG 均通过 `/api/ocr` 生产鉴权路径和 mock OCR service，分别覆盖 `mode=normal` 与 `mode=high_accuracy`；未调用真实 DashScope，未外发发票内容；临时文件已清理。
 
+真实 PDF 浏览器链路复验：
+
+```bash
+node /private/tmp/kairos-pdf-browser-check.mjs
+```
+
+验证方式：临时脚本启动只读本地 HTTP server 与 headless Google Chrome，通过 Chrome DevTools Protocol 打开最小验证页；页面加载仓库真实 `libs/pdf.min.js`、`libs/pdf.worker.min.js`、`js/utils/imageProcessor.js`、`js/utils/ocrClient.js`，注入 `tools/test doc/单项目发票 test.pdf` 为浏览器 `File`，调用 `window.processInvoiceFile(file, true, ...)`，并在页面内 mock `/api/ocr`。
+
+结果：`pdfjsLib` 与 `processImage` 均就绪；`processInvoiceFile` 返回 `isPDF: true`、`recognitionSource: "ocr"`、`previewUrl` 为 `blob:`；mock `/api/ocr` 收到 `mode: "normal"` 与 `data:image/jpeg;base64,...`，证明真实 PDF 第 1 页已由浏览器 PDF.js 转为 JPEG 并进入现有 OCR client 链路。临时脚本与 Chrome profile 已清理。
+
 ## 安全注意事项
 
 README 当前 HEAD 已移除 `sk-...` 形态样例，但历史提交中曾出现真实形态凭证。应在真实环境中轮换或废止对应凭证。未执行历史重写，因为这会改变 Git 历史，需要单独授权。
@@ -226,5 +236,4 @@ README 当前 HEAD 已移除 `sk-...` 形态样例，但历史提交中曾出现
 ## 后续建议
 
 1. 使用真实 DashScope 凭证和经授权的内部发票样本补跑端到端 OCR；当前自动化避免外发真实发票内容。
-2. 使用浏览器自动化或人工窗口补跑真实 PDF 文件在前端 PDF.js 上传转换链路中的表现。
-3. 若未来要完全去 CDN 或迁移 Vite，应单独立项，先拆浏览器 Babel 与 Tailwind CDN。
+2. 若未来要完全去 CDN 或迁移 Vite，应单独立项，先拆浏览器 Babel 与 Tailwind CDN。
