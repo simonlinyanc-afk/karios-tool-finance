@@ -6,7 +6,7 @@ Phase 5 不引入 Vite，先保持当前“静态页面 + 自托管 Node 服务�
 
 本阶段只纳入：
 
-- `package.json`：补齐本地开发、启动和测试脚本。
+- `package.json`：补齐本地开发、启动和测试脚本；不提供 Vercel 部署脚本。
 - `package-lock.json`：锁定当前 npm 工程元信息，确保后续新增 npm 依赖时有统一 lockfile。
 - 本文档：记录 Vite 评估、当前依赖边界和后续迁移条件。
 
@@ -56,6 +56,8 @@ node --test tests/*.test.js
 ```
 
 生产自托管仍以 `server.js` 为主，Vercel `api/ocr.js` 只保留兼容入口。
+
+`package.json` 不保留 `vercel --prod` 或等价部署脚本，避免把兼容入口误用为正式部署路径。
 
 ## 依赖边界
 

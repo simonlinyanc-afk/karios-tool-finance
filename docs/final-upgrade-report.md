@@ -16,6 +16,7 @@
 | Phase 4 | `28caab0` | UX 文案、表格、上传、弹窗与增强识别入口 |
 | Phase 5 | `5fa96c3` | 轻量构建系统元信息与构建系统说明 |
 | Phase 6 | `fc2d1c0` | 自托管部署资产、Docker Compose、Nginx 示例与 health endpoint |
+| 安全边界补强 | `ce11656` | 明确混合鉴权批准方案、生产 Token 边界与日志安全测试 |
 
 当前仍保留的工作区旧脏文件未纳入上述阶段提交，包括 `.DS_Store`、`README.md`、`js/utils/imageProcessor.js`、`js/components/PDFTemplate.js`、`print.html` 的非阶段改动、黑色 SVG、`tests/self-hosting.test.js`、`tests/ocr-core.test.js` 等。
 
@@ -108,7 +109,7 @@ Phase 5 评估后未迁移 Vite。
 
 本阶段完成：
 
-- `package.json` 补齐 `dev`、`start`、`test` 脚本。
+- `package.json` 补齐 `dev`、`start`、`test` 脚本，并移除 Vercel 部署脚本。
 - `package-lock.json` 锁定当前 npm 工程元信息。
 - `docs/build-system.md` 记录 Vite 暂缓原因与后续迁移条件。
 

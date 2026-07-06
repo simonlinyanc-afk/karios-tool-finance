@@ -73,12 +73,14 @@ test('health endpoint only allows GET and keeps the legacy path compatible', asy
 });
 
 test('Docker and Nginx deployment examples preserve the approved self-hosted boundary', async () => {
-  const [dockerfile, dockerignore, compose, nginx, docs] = await Promise.all([
+  const [dockerfile, dockerignore, compose, nginx, docs, packageJson, buildDocs] = await Promise.all([
     fs.readFile('Dockerfile', 'utf8'),
     fs.readFile('.dockerignore', 'utf8'),
     fs.readFile('docker-compose.yml', 'utf8'),
     fs.readFile('deploy/nginx-yellow-bird-finance.conf', 'utf8'),
-    fs.readFile('docs/deployment-self-hosted.md', 'utf8')
+    fs.readFile('docs/deployment-self-hosted.md', 'utf8'),
+    fs.readFile('package.json', 'utf8'),
+    fs.readFile('docs/build-system.md', 'utf8')
   ]);
 
   assert.match(dockerfile, /FROM node:20-alpine/u);
@@ -110,4 +112,14 @@ test('Docker and Nginx deployment examples preserve the approved self-hosted bou
   ]) {
     assert.match(docs, new RegExp(requiredCopy, 'u'));
   }
+
+  const scripts = JSON.parse(packageJson).scripts || {};
+  assert.equal(scripts.dev, 'node server.js');
+  assert.equal(scripts.start, 'node server.js');
+  assert.equal(scripts.test, 'node --test tests/*.test.js');
+  assert.equal(scripts.deploy, undefined);
+  assert.equal(scripts['deploy:vercel'], undefined);
+  assert.doesNotMatch(packageJson, /vercel\s+--prod/u);
+  assert.match(buildDocs, /不提供 Vercel 部署脚本/u);
+  assert.match(buildDocs, /不保留 `vercel --prod`/u);
 });
