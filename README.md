@@ -2,6 +2,8 @@
 
 Kairos Finance 是 Kairos 工作室内部使用的发票 / 报销管理系统。它保持轻量自托管架构：浏览器负责本地预处理和本地优先缓存，服务端只做同源 OCR 代理、安全校验和静态资源服务。
 
+当前网页版本：v2.0.0。
+
 当前正式运行方式是自有服务器 `server.js`。`api/ocr.js` 仍保留为 Vercel 兼容入口，但本项目不以 Vercel 部署作为主路径。
 
 ## 当前架构
@@ -212,6 +214,7 @@ node --test tests/phase3-config.test.js tests/phase6-deployment.test.js
 - [docs/deployment-self-hosted.md](docs/deployment-self-hosted.md)：自托管部署说明
 - [docs/build-system.md](docs/build-system.md)：构建系统说明
 - [docs/final-upgrade-report.md](docs/final-upgrade-report.md)：最终升级与回归报告
+- [docs/web-v2-upgrade-report.md](docs/web-v2-upgrade-report.md)：v2.0.0 网页版本角标与开屏升级报告说明
 
 ## 维护边界
 

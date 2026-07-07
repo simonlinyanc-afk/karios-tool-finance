@@ -1,47 +1,232 @@
-const uploadStatusLabels = {
-    waiting: '等待识别',
-    queued: '等待识别',
-    preparing: '正在准备图片',
-    processing: '正在识别',
-    completed: '已完成',
-    ready: '已完成',
-    needs_review: '建议检查',
-    failed: '识别失败',
-    cancelled: '已取消'
-};
+const {
+    FILE_STATUS,
+    WORKSPACE_STATE,
+    RESULT_TIMING,
+    ISSUE_LIST_LIMIT,
+    STATUS_META,
+    mapQueueItemToFileStatus,
+    countBatch,
+    getWorkingTitle,
+    buildCompleteSummary,
+    isTerminalFileStatus
+} = window.UploadWorkspaceHelpers;
 
-const getUploadStatusLabel = item => uploadStatusLabels[item.resultStatus || item.status] || '等待识别';
+const buildIssueGroup = (title, files, moreTemplate) => {
+    const visibleFiles = files.slice(0, ISSUE_LIST_LIMIT);
+    const extraCount = files.length - visibleFiles.length;
+
+    return (
+        <section className="upload-issue-group" key={title}>
+            <p className="upload-issue-title">{title}</p>
+            {visibleFiles.map(file => (
+                <span className="upload-issue-file" key={file.id || file.name} title={file.name}>
+                    • {file.name}
+                </span>
+            ))}
+            {extraCount > 0 && (
+                <p className="upload-issue-more">{moreTemplate.replace('*', extraCount)}</p>
+            )}
+        </section>
+    );
+};
 
 window.UploadZone = ({
     isDragging,
     handleFiles,
     processingQueue,
     isProcessing,
+    isEnhancing = false,
     onDragOver,
     onDragLeave,
     onDrop,
     onCancelAll,
-    onCancelItem
+    onCancelItem,
+    onEnhanceFailed,
+    // Optional parent hook when user clicks「继续上传」. If omitted, beginResetTransition closes the overlay.
+    onContinueUpload,
+    onWorkspaceIdle
 }) => {
-    const { RefreshCw, Upload, X } = window;
-    const showQueue = processingQueue.length > 0;
-    const summary = processingQueue.reduce((result, item) => {
-        const status = item.resultStatus || item.status;
-        if (status === 'completed' || status === 'ready') result.completed += 1;
-        if (status === 'needs_review') result.needsReview += 1;
-        if (status === 'failed') result.failed += 1;
-        return result;
-    }, { completed: 0, needsReview: 0, failed: 0 });
+    const { Upload, X } = window;
+    const { useState, useEffect, useRef, useMemo } = React;
+
+    const [workspaceState, setWorkspaceState] = useState(WORKSPACE_STATE.IDLE);
+    const [autoReviewIds, setAutoReviewIds] = useState(() => new Set());
+    const overlayTimerRef = useRef(null);
+    const resetTimerRef = useRef(null);
+    const autoReviewTimersRef = useRef(new Map());
+
+    const clearOverlayTimers = () => {
+        if (overlayTimerRef.current) {
+            clearTimeout(overlayTimerRef.current);
+            overlayTimerRef.current = null;
+        }
+        if (resetTimerRef.current) {
+            clearTimeout(resetTimerRef.current);
+            resetTimerRef.current = null;
+        }
+    };
+
+    const resetWorkspaceVisual = () => {
+        clearOverlayTimers();
+        setAutoReviewIds(new Set());
+        onWorkspaceIdle?.();
+        setWorkspaceState(WORKSPACE_STATE.IDLE);
+    };
+
+    const beginResetTransition = () => {
+        clearOverlayTimers();
+        setWorkspaceState(WORKSPACE_STATE.RESETTING);
+        resetTimerRef.current = setTimeout(() => {
+            resetWorkspaceVisual();
+        }, RESULT_TIMING.RESET_TRANSITION_MS);
+    };
+
+    const hasQueue = processingQueue.length > 0;
+
+    const displayStatuses = useMemo(
+        () => processingQueue.map(item => mapQueueItemToFileStatus(item, autoReviewIds)),
+        [processingQueue, autoReviewIds]
+    );
+
+    const counts = useMemo(
+        () => countBatch(processingQueue, autoReviewIds),
+        [processingQueue, autoReviewIds]
+    );
+
+    const allTerminal = hasQueue && displayStatuses.every(status => isTerminalFileStatus(status));
+    const workingTitle = getWorkingTitle(processingQueue, autoReviewIds, isEnhancing);
+    const batchProgress = hasQueue ? Math.round((counts.finished / counts.total) * 100) : 0;
+
+    const reviewFiles = processingQueue.filter(
+        item => mapQueueItemToFileStatus(item, autoReviewIds) === FILE_STATUS.REVIEW
+    );
+    const failedFiles = processingQueue.filter(
+        item => mapQueueItemToFileStatus(item, autoReviewIds) === FILE_STATUS.FAILED
+    );
+    const hasFailure = failedFiles.length > 0;
+    const hasReview = reviewFiles.length > 0;
+
+    useEffect(() => () => {
+        clearOverlayTimers();
+        autoReviewTimersRef.current.forEach(clearTimeout);
+        autoReviewTimersRef.current.clear();
+    }, []);
+
+    useEffect(() => {
+        const timers = autoReviewTimersRef.current;
+        const currentIds = new Set();
+
+        processingQueue.forEach(item => {
+            currentIds.add(item.id);
+            const rawStatus = typeof item.status === 'string' ? item.status.trim().toLowerCase() : '';
+            const isActivelyProcessing = rawStatus === 'processing' || rawStatus === 'preparing';
+
+            if (isActivelyProcessing) {
+                if (!timers.has(item.id)) {
+                    const timer = setTimeout(() => {
+                        timers.delete(item.id);
+                        setAutoReviewIds(prev => {
+                            if (prev.has(item.id)) return prev;
+                            const next = new Set(prev);
+                            next.add(item.id);
+                            return next;
+                        });
+                    }, RESULT_TIMING.AUTO_REVIEW_AFTER_MS);
+                    timers.set(item.id, timer);
+                }
+                return;
+            }
+
+            if (timers.has(item.id)) {
+                clearTimeout(timers.get(item.id));
+                timers.delete(item.id);
+            }
+        });
+
+        for (const [id, timer] of [...timers.entries()]) {
+            if (!currentIds.has(id)) {
+                clearTimeout(timer);
+                timers.delete(id);
+            }
+        }
+    }, [processingQueue]);
+
+    useEffect(() => {
+        if (!hasQueue) {
+            if (workspaceState !== WORKSPACE_STATE.IDLE && workspaceState !== WORKSPACE_STATE.RESETTING) {
+                setWorkspaceState(WORKSPACE_STATE.IDLE);
+            }
+            return;
+        }
+
+        if (isEnhancing) {
+            if (workspaceState === WORKSPACE_STATE.COMPLETE) {
+                clearOverlayTimers();
+            }
+            if (workspaceState !== WORKSPACE_STATE.ENHANCING) {
+                setWorkspaceState(WORKSPACE_STATE.ENHANCING);
+            }
+            return;
+        }
+
+        if (!allTerminal || isProcessing) {
+            if (workspaceState === WORKSPACE_STATE.COMPLETE || workspaceState === WORKSPACE_STATE.RESETTING) {
+                clearOverlayTimers();
+            }
+            if (workspaceState !== WORKSPACE_STATE.PROCESSING && workspaceState !== WORKSPACE_STATE.ENHANCING) {
+                setWorkspaceState(WORKSPACE_STATE.PROCESSING);
+            }
+            return;
+        }
+
+        if (workspaceState === WORKSPACE_STATE.COMPLETE || workspaceState === WORKSPACE_STATE.RESETTING) {
+            return;
+        }
+
+        setWorkspaceState(WORKSPACE_STATE.COMPLETE);
+
+        if (!hasFailure) {
+            const stayMs = hasReview
+                ? RESULT_TIMING.REVIEW_AUTO_DISMISS_MS
+                : RESULT_TIMING.SUCCESS_AUTO_DISMISS_MS;
+            overlayTimerRef.current = setTimeout(() => {
+                beginResetTransition();
+            }, stayMs);
+        }
+    }, [
+        hasQueue,
+        allTerminal,
+        isProcessing,
+        isEnhancing,
+        hasFailure,
+        hasReview,
+        workspaceState
+    ]);
+
+    const handleContinueClick = () => {
+        onContinueUpload?.();
+        beginResetTransition();
+    };
+
+    const handleEnhanceClick = () => {
+        clearOverlayTimers();
+        onEnhanceFailed?.();
+    };
+
+    const showProcessingLayer = hasQueue && workspaceState !== WORKSPACE_STATE.IDLE;
+    const canCancel = isProcessing && !isEnhancing && workspaceState !== WORKSPACE_STATE.COMPLETE;
 
     return (
-        <section className="h-full relative overflow-hidden rounded-xl" aria-labelledby="invoice-upload-title">
-            {!showQueue ? (
-                <div
-                    className={`upload-zone rounded-xl p-8 flex flex-col items-center justify-center text-center h-full ${isDragging ? 'drag-active' : ''}`}
-                    onDragOver={onDragOver}
-                    onDragLeave={onDragLeave}
-                    onDrop={onDrop}
-                >
+        <article
+            className={`upload-workspace h-full ${isDragging ? 'drag-active' : ''}`}
+            data-workspace-state={hasQueue ? workspaceState : WORKSPACE_STATE.IDLE}
+            aria-live="polite"
+            onDragOver={onDragOver}
+            onDragLeave={onDragLeave}
+            onDrop={onDrop}
+        >
+            <div className="upload-idle" aria-hidden={showProcessingLayer}>
+                <div className="upload-idle-center">
                     <input
                         type="file"
                         id="fileInput"
@@ -55,91 +240,120 @@ window.UploadZone = ({
                     />
                     <button
                         type="button"
-                        className="group w-full h-full flex flex-col items-center justify-center rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#111]"
+                        className="upload-trigger"
                         onClick={() => document.getElementById('fileInput')?.click()}
                         aria-describedby="invoice-upload-help invoice-upload-privacy"
                     >
-                        <span className="w-14 h-14 bg-[#1a1a1a] rounded-full flex items-center justify-center mb-4 transition-transform group-hover:scale-105">
-                            {isProcessing
-                                ? <RefreshCw aria-hidden="true" className="motion-spin text-yellow-400" size={28} />
-                                : <Upload aria-hidden="true" className="text-yellow-400" size={28} />}
+                        <span className="upload-icon" aria-hidden="true">
+                            <Upload aria-hidden="true" className="upload-icon__glyph" size={28} />
                         </span>
-                        <span id="invoice-upload-title" className="text-sm font-semibold mb-2 font-cn">拖入发票，自动整理报销明细</span>
-                        <span id="invoice-upload-help" className="text-xs text-gray-400 mb-2 font-cn">
-                            支持 JPG、PNG、PDF。单次最多 10 个文件，PDF 默认识别第 1 页。
-                        </span>
-                        <span id="invoice-upload-privacy" className="text-xs text-gray-500 font-cn leading-relaxed">
-                            系统会先在浏览器中压缩图片，再发送用于识别；原始文件不会保存在服务器。
+                        <span id="invoice-upload-title" className="upload-title font-cn">拖入发票，自动整理报销明细</span>
+                        <span id="invoice-upload-help" className="upload-format font-cn">支持 JPG、PNG、PDF。</span>
+                        <span id="invoice-upload-privacy" className="upload-hint font-cn">
+                            单次最多 10 个文件，PDF 默认识别第 1 页。
                         </span>
                     </button>
                 </div>
-            ) : (
-                <div className="card-modern rounded-xl p-6 h-full flex flex-col justify-center border-yellow-400/20 border">
-                    <div className="mb-4 flex items-start justify-between gap-4">
-                        <div>
-                            <h3 className="text-sm font-semibold font-cn flex items-center gap-2">
-                                <RefreshCw aria-hidden="true" className={`text-yellow-400 ${isProcessing ? 'motion-spin' : ''}`} size={16} />
-                                批量识别进度
-                            </h3>
-                            <p className="mt-2 text-xs text-gray-400 font-cn tabular-nums" aria-live="polite" aria-atomic="true">
-                                本批次 {processingQueue.length} 张发票 · 已完成 {summary.completed} · 建议检查 {summary.needsReview} · 识别失败 {summary.failed}
-                            </p>
-                        </div>
-                        {isProcessing && (
+            </div>
+
+            {hasQueue && (
+                <div className="upload-processing" aria-hidden={!showProcessingLayer}>
+                    <div className="upload-processing-header">
+                        <h2 className="upload-working-title font-cn" data-text={workingTitle}>{workingTitle}</h2>
+                        {canCancel && (
                             <button
                                 type="button"
                                 onClick={onCancelAll}
-                                className="text-xs text-red-400 hover:text-red-300 font-cn border border-red-400/30 px-2 py-1 rounded hover:bg-red-400/10 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400"
+                                className="upload-cancel-all font-cn"
                             >
                                 取消全部识别
                             </button>
                         )}
                     </div>
 
-                    <div className="space-y-3 overflow-y-auto custom-scrollbar max-h-[300px] pr-2">
+                    <ul className="upload-file-list">
                         {processingQueue.map((item, index) => {
-                            const status = item.resultStatus || item.status;
-                            const isFinished = ['completed', 'ready', 'needs_review', 'failed'].includes(status);
-                            const progress = isFinished ? 100 : status === 'processing' ? Math.max(30, item.progress || 0) : item.progress || 0;
+                            const fileStatus = mapQueueItemToFileStatus(item, autoReviewIds);
+                            const meta = STATUS_META[fileStatus] || STATUS_META[FILE_STATUS.PENDING];
+                            const canCancelItem = ['waiting', 'queued', 'processing', 'preparing'].includes(item.status);
+
                             return (
-                                <div key={item.id} className="space-y-1.5 queue-item">
-                                    <div className="flex justify-between text-xs items-center gap-3">
-                                        <span className="text-gray-400 font-en truncate min-w-0" title={item.name}>{item.name}</span>
-                                        <div className="flex items-center gap-2 shrink-0">
-                                            <span className={`font-semibold font-cn ${status === 'failed' ? 'text-red-400' : status === 'cancelled' ? 'text-gray-500' : status === 'needs_review' ? 'text-yellow-200' : status === 'completed' || status === 'ready' ? 'text-green-400' : 'text-yellow-400'}`}>
-                                                {getUploadStatusLabel(item)}
-                                            </span>
-                                            {(item.status === 'waiting' || item.status === 'queued' || item.status === 'processing') && (
-                                                <button
-                                                    type="button"
-                                                    onClick={event => { event.stopPropagation(); onCancelItem(index); }}
-                                                    className="p-1 hover:bg-[#333] rounded text-gray-500 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400"
-                                                    aria-label={`取消 ${item.name} 的识别`}
-                                                >
-                                                    <X aria-hidden="true" size={12} />
-                                                </button>
-                                            )}
-                                        </div>
+                                <li className="upload-file-row" key={item.id} data-status={fileStatus}>
+                                    <span className="upload-status-icon" aria-hidden="true" dangerouslySetInnerHTML={{ __html: meta.icon }} />
+                                    <div className="upload-file-main">
+                                        <span className="upload-file-name font-en" title={item.name}>{item.name}</span>
+                                        <span className="upload-file-note font-cn">{item.note || meta.note}</span>
                                     </div>
-                                    <div
-                                        className="progress-bar h-1.5 bg-gray-800 rounded-full overflow-hidden"
-                                        role="progressbar"
-                                        aria-label={`${item.name} 识别进度`}
-                                        aria-valuemin={0}
-                                        aria-valuemax={100}
-                                        aria-valuenow={progress}
-                                    >
-                                        <div
-                                            className={`queue-progress-fill h-full rounded-full ${status === 'processing' ? 'queue-progress-active' : ''} ${status === 'failed' ? 'bg-red-500' : status === 'cancelled' ? 'bg-gray-600' : 'bg-yellow-400'}`}
-                                            style={{ width: `${progress}%` }}
-                                        />
-                                    </div>
-                                </div>
+                                    {canCancelItem && canCancel && (
+                                        <button
+                                            type="button"
+                                            onClick={event => { event.stopPropagation(); onCancelItem(index); }}
+                                            className="upload-item-cancel"
+                                            aria-label={`取消 ${item.name} 的识别`}
+                                        >
+                                            <X aria-hidden="true" size={12} />
+                                        </button>
+                                    )}
+                                </li>
                             );
                         })}
+                    </ul>
+
+                    <div
+                        className="upload-batch-progress-track"
+                        role="progressbar"
+                        aria-label="批量识别进度"
+                        aria-valuemin={0}
+                        aria-valuemax={100}
+                        aria-valuenow={batchProgress}
+                    >
+                        <div
+                            className="upload-batch-progress-fill"
+                            style={{ '--upload-progress': `${batchProgress}%` }}
+                        />
+                    </div>
+                    <div className="upload-batch-line font-cn tabular-nums" aria-live="polite" aria-atomic="true">
+                        {counts.finished} / {counts.total}
                     </div>
                 </div>
             )}
-        </section>
+
+            {hasQueue && (
+                <div className="upload-complete-overlay" aria-hidden={workspaceState !== WORKSPACE_STATE.COMPLETE && workspaceState !== WORKSPACE_STATE.RESETTING}>
+                    <div className="upload-complete-panel">
+                        <div className="upload-complete-title font-cn">
+                            {hasFailure ? '识别已结束' : '识别完成'}
+                        </div>
+                        <p className="upload-complete-summary font-cn">
+                            {buildCompleteSummary(counts)}
+                        </p>
+                        {(hasReview || hasFailure) && (
+                            <div className="upload-issue-list">
+                                {hasReview && buildIssueGroup('建议检查', reviewFiles, '还有 * 个文件建议检查')}
+                                {hasFailure && buildIssueGroup('识别失败', failedFiles, '还有 * 个失败文件')}
+                            </div>
+                        )}
+                        {hasFailure && (
+                            <div className="upload-complete-actions">
+                                <button
+                                    type="button"
+                                    className="upload-complete-action primary font-cn"
+                                    onClick={handleEnhanceClick}
+                                >
+                                    增强识别失败项
+                                </button>
+                                <button
+                                    type="button"
+                                    className="upload-complete-action font-cn"
+                                    onClick={handleContinueClick}
+                                >
+                                    继续上传
+                                </button>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
+        </article>
     );
 };

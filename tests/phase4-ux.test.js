@@ -14,6 +14,7 @@ const readProjectFile = relativePath => fs.readFile(path.join(projectRoot, relat
 async function readUiSources() {
   const paths = [
     'index.html',
+    'js/utils/uploadWorkspaceState.js',
     'js/components/UploadZone.js',
     'js/components/ReimbursementTable.js',
     'js/components/ExportPreviewModal.js',
@@ -71,9 +72,10 @@ test('upload zone explains formats limits privacy and exposes accessible progres
   ]);
 
   assert.match(source, /拖入发票，自动整理报销明细/u);
-  assert.match(source, /支持 JPG、PNG、PDF。单次最多 10 个文件，PDF 默认识别第 1 页。/u);
-  assert.match(source, /浏览器中压缩图片/u);
-  assert.match(source, /原始文件不会保存在服务器/u);
+  assert.match(source, /支持 JPG、PNG、PDF。/u);
+  assert.match(source, /单次最多 10 个文件，PDF 默认识别第 1 页。/u);
+  assert.doesNotMatch(source, /浏览器中压缩图片/u);
+  assert.doesNotMatch(source, /原始文件不会保存在服务器/u);
   assert.match(source, /accept="image\/jpeg,image\/png,application\/pdf"/u);
   assert.match(source, /aria-live="polite"/u);
   assert.match(source, /role="progressbar"/u);
@@ -84,9 +86,11 @@ test('upload zone explains formats limits privacy and exposes accessible progres
 });
 
 test('batch and row statuses use the approved user language', async () => {
-  const { 'js/components/UploadZone.js': upload, 'js/components/ReimbursementTable.js': table } = await readUiSources();
+  const sources = await readUiSources();
+  const upload = `${sources['js/utils/uploadWorkspaceState.js']}\n${sources['js/components/UploadZone.js']}`;
+  const table = sources['js/components/ReimbursementTable.js'];
 
-  for (const label of ['等待识别', '正在识别', '已完成', '建议检查', '识别失败']) {
+  for (const label of ['等待识别', '正在识别', '识别完成', '建议检查', '识别失败']) {
     assert.match(`${upload}\n${table}`, new RegExp(label, 'u'));
   }
   assert.doesNotMatch(upload, /等待中|处理中\.\.\.|>完成<|>失败</u);
@@ -216,16 +220,20 @@ test('dialogs expose names modal semantics Escape support and explicit transitio
   assert.match(modalSource, /aria-labelledby=/u);
   assert.match(modalSource, /event\.key === ['"]Escape['"]/u);
   assert.match(modalSource, /overscroll-contain/u);
-  assert.match(modalSource, /focus-visible:/u);
+  // Focus states are provided globally via the shared :focus-visible ring, so
+  // shell controls (btn-primary / footer-link / modal-close) inherit it.
+  const css = await readProjectFile('css/style.css');
+  assert.match(css, /:focus-visible/u);
   assert.doesNotMatch(modalSource, /transition-all/u);
   assert.doesNotMatch(modalSource, />[^\n<{]*(?:OCR|Draft|Popup Blocker)[^\n<{]*</iu);
 });
 
 test('export preview distinguishes review and failure actions in user language', async () => {
   const source = await readProjectFile('js/components/ExportPreviewModal.js');
-  for (const copy of ['已完成', '建议检查', '识别失败', '先去检查', '查看失败项', '仍然导出']) {
+  for (const copy of ['已完成', '建议检查', '识别失败', '先去检查', '查看失败项', '导出 Excel', '打印 / 另存 PDF']) {
     assert.match(source, new RegExp(copy, 'u'));
   }
+  assert.doesNotMatch(source, /仍然导出|仍然打印/u);
   assert.doesNotMatch(source, /['"]OCR 失败['"]|['"]就绪['"]|['"]待检查['"]|['"]失败['"]/u);
 });
 
@@ -351,10 +359,10 @@ test('export and print failures use safe user copy with a next action', async ()
   assert.match(printSource, /请返回主页面重新打开打印预览/u);
 });
 
-test('empty save alert explains how to create saveable content', async () => {
+test('empty save toast explains how to create saveable content', async () => {
   const indexSource = await readProjectFile('index.html');
-  assert.match(indexSource, /alert\('当前没有可保存内容。请先添加发票或填写项目信息后再保存。'\)/u);
-  assert.doesNotMatch(indexSource, /alert\('无可保存内容'\)/u);
+  assert.match(indexSource, /triggerToast\('当前没有可保存内容。请先添加发票或填写项目信息后再保存。', 'warning'\)/u);
+  assert.doesNotMatch(indexSource, /alert\('无可保存内容'\)|alert\('当前没有可保存内容/u);
 });
 
 test('phase 4 docs describe export manager and print safe-error boundaries', async () => {
@@ -371,9 +379,13 @@ test('phase 4 docs describe export manager and print safe-error boundaries', asy
 });
 
 test('row deletion asks for confirmation before mutating data', async () => {
-  const table = await readProjectFile('js/components/ReimbursementTable.js');
-  assert.match(table, /window\.confirm\(['"]要删除这条发票记录吗？删除后无法恢复。['"]\)/u);
-  assert.match(table, /if \(!window\.confirm[\s\S]*?return;/u);
+  const [table, system] = await Promise.all([
+    readProjectFile('js/components/ReimbursementTable.js'),
+    readProjectFile('js/components/SystemModals.js')
+  ]);
+  assert.match(table, /await requestConfirm\(\{[\s\S]*title: '删除这条发票记录？'[\s\S]*confirmText: '确认删除'/u);
+  assert.match(table, /if \(!confirmed\) return;[\s\S]*deleteItem\(item\.id\);/u);
+  assert.match(system, /ConfirmDialog: \(\{ confirmDialog, onCancel, onConfirm \}\)/u);
 });
 
 test('minor accessibility copy fixes keep controls and images explicit', async () => {
@@ -388,4 +400,58 @@ test('minor accessibility copy fixes keep controls and images explicit', async (
   assert.match(system, /正在准备导出文件/u);
   assert.doesNotMatch(system, /Processing Request/u);
   assert.match(await readProjectFile('js/components/ReimbursementTable.js'), /autoComplete="off"/u);
+});
+
+test('v2 upgrade badge and first-run report use safe user-facing copy', async () => {
+  const [indexSource, modalSource, versionRaw, packageRaw, readme] = await Promise.all([
+    readProjectFile('index.html'),
+    readProjectFile('js/components/VersionModal.js'),
+    readProjectFile('data/version.json'),
+    readProjectFile('package.json'),
+    readProjectFile('README.md')
+  ]);
+  const versionData = JSON.parse(versionRaw);
+  const packageData = JSON.parse(packageRaw);
+  const visibleUpgradeCopy = [
+    versionData.title,
+    versionData.intro,
+    ...(versionData.updates || []),
+    versionData.reminder || ''
+  ].join('\n');
+
+  assert.equal(versionData.version, '2.0.0');
+  assert.equal(packageData.version, '2.0.0');
+  assert.match(readme, /当前网页版本：v2\.0\.0/u);
+  assert.match(indexSource, /v\{versionData \? versionData\.version : ['"]\.\.\.['"]\}/u);
+  assert.match(versionData.title, /Kairos Finance 已升级到 v2\.0\.0/u);
+  assert.match(modalSource, /开始使用/u);
+  assert.match(modalSource, /查看历史更新内容/u);
+  assert.match(indexSource, /Kairos Studio©️ 2026/u);
+  assert.match(indexSource, /数据仅保存在本地/u);
+  assert.match(indexSource, /Powered by Qwen/u);
+  const oldVersionPattern = new RegExp([
+    ['1', '2', '4'].join('\\.') + '-alpha',
+    ['1', '2', '5'].join('\\.') + '-alpha',
+    'v1\\.[0-9]+\\.[0-9]+',
+    `© Kairos ${'Finance'}`
+  ].join('|'), 'u');
+  assert.doesNotMatch(`${indexSource}\n${modalSource}\n${versionRaw}\n${packageRaw}\n${readme}`, oldVersionPattern);
+  assert.doesNotMatch(visibleUpgradeCopy, /fallback|schema|JSON|MD5|IndexedDB|DashScope|model/iu);
+});
+
+test('v2 upgrade report stores only a versioned seen flag and does not repeat after reading', async () => {
+  const [indexSource, modalSource, versionRaw] = await Promise.all([
+    readProjectFile('index.html'),
+    readProjectFile('js/components/VersionModal.js'),
+    readProjectFile('data/version.json')
+  ]);
+  const versionData = JSON.parse(versionRaw);
+  const expectedKey = `kairos-finance.seenUpgrade.v${versionData.version}`;
+
+  assert.equal(expectedKey, 'kairos-finance.seenUpgrade.v2.0.0');
+  assert.match(indexSource, /const seenUpgradeKey = data && data\.version \? `kairos-finance\.seenUpgrade\.v\$\{data\.version\}` : null/u);
+  assert.match(indexSource, /localStorage\.getItem\(seenUpgradeKey\) !== ['"]true['"]/u);
+  assert.match(indexSource, /localStorage\.setItem\(`kairos-finance\.seenUpgrade\.v\$\{versionData\.version\}`, ['"]true['"]\)/u);
+  assert.doesNotMatch(indexSource, /last_seen_version/u);
+  assert.doesNotMatch(`${indexSource}\n${modalSource}\n${versionRaw}`, /OCR_ACCESS_TOKEN|QWEN_API_KEY|sk-[A-Za-z0-9]|data:image\/(?:jpeg|png);base64/iu);
 });

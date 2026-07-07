@@ -1,72 +1,63 @@
-const { useState, useEffect } = React;
-
+/**
+ * VersionModal — v2.0.0 upgrade splash.
+ *
+ * Thin wrapper around the shared HeroModal shell (variant="upgrade"):
+ * long, scrollable copy with a bottom fade mask and a "查看历史更新内容"
+ * external secondary link. Business logic (seen flag, data loading) stays in
+ * index.html; this component only maps version data onto the shared shell.
+ */
 window.VersionModal = ({ isOpen, onClose, versionData }) => {
-    const { X, ExternalLink } = window;
-
     if (!isOpen || !versionData) return null;
 
+    const title = versionData.title || `Kairos Finance 已升级到 v${versionData.version} 🎉`;
+    const intro = versionData.intro || '';
+    const changesHeading = versionData.changesHeading || '这次有什么变化？';
+    const sections = Array.isArray(versionData.sections) ? versionData.sections : [];
+    const heroSrc = versionData.hero || 'assets/upgrade-v2.0.0-hero.webp';
+    const heroAlt = versionData.heroAlt || `Kairos Finance 升级到 v${versionData.version}`;
+    const historyLink = versionData.historyLink || '';
+
     return (
-        <div
-            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4 animate-in fade-in duration-200"
-            onClick={onClose}
+        <window.HeroModal
+            isOpen={isOpen}
+            onClose={onClose}
+            variant="upgrade"
+            scrollable={true}
+            showFadeMask={true}
+            heroSrc={heroSrc}
+            heroAlt={heroAlt}
+            title={title}
+            labelId="version-modal-title"
+            closeAriaLabel="关闭升级说明"
+            primaryActionText="开始使用"
+            onPrimaryAction={onClose}
+            secondaryActionText="查看历史更新内容"
+            secondaryActionHref={historyLink}
         >
-            <div
-                className="bg-[#141414] rounded-xl shadow-2xl w-full max-w-2xl border border-[#2a2a2a] overflow-hidden"
-                onClick={e => e.stopPropagation()}
-            >
-                {/* Header */}
-                <div className="relative h-32 bg-gradient-to-br from-yellow-500/10 to-transparent flex items-center justify-center border-b border-[#2a2a2a] shrink-0">
-                    <div className="text-center pb-4">
-                        <div className="inline-block px-3 py-1 rounded-full bg-yellow-500/20 border border-yellow-500/30 text-yellow-500 text-xs font-mono mb-3">
-                            Whats New
-                        </div>
-                        <h2 className="text-2xl font-bold text-white font-cn mb-1">
-                            版本更新
-                        </h2>
-                        <p className="text-gray-400 font-mono text-sm">v{versionData.version}</p>
+            {intro ? (
+                <p className="modal-description text-sm leading-relaxed mb-4">{intro}</p>
+            ) : null}
+            {changesHeading ? (
+                <h3 className="hero-modal__section-title modal-title text-sm font-bold font-cn mb-3">
+                    {changesHeading}
+                </h3>
+            ) : null}
+            <div className="space-y-4">
+                {sections.map((section, index) => (
+                    <div key={index} className="hero-modal__section">
+                        {section.heading ? (
+                            <p className="hero-modal__section-heading modal-title text-sm font-semibold font-cn">
+                                {section.heading}
+                            </p>
+                        ) : null}
+                        {section.body ? (
+                            <p className="modal-description text-sm leading-relaxed mt-1">
+                                {section.body}
+                            </p>
+                        ) : null}
                     </div>
-                    <button
-                        onClick={onClose}
-                        className="absolute top-3 right-3 p-1.5 rounded-full hover:bg-white/10 text-gray-400 hover:text-white transition"
-                    >
-                        <X size={20} />
-                    </button>
-                </div>
-
-                {/* Content */}
-                <div className="p-6">
-                    <div className="space-y-4 max-h-[50vh] overflow-y-auto custom-scrollbar pr-2">
-                        {versionData.updates.map((update, index) => (
-                            <div key={index} className="flex gap-3 text-sm text-gray-300">
-                                <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-yellow-500 shrink-0"></span>
-                                <span className="leading-relaxed">{update}</span>
-                            </div>
-                        ))}
-                    </div>
-
-                    {/* Footer */}
-                    <div className="mt-6 pt-4 border-t border-[#2a2a2a] flex justify-center">
-                        <a
-                            href={versionData.historyLink}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-yellow-500 transition group"
-                        >
-                            <span>查看历史更新内容</span>
-                            <ExternalLink size={12} className="group-hover:-translate-y-0.5 group-hover:translate-x-0.5 transition-transform" />
-                        </a>
-                    </div>
-                </div>
-
-                <div className="p-4 bg-[#1a1a1a] border-t border-[#2a2a2a]">
-                    <button
-                        onClick={onClose}
-                        className="w-full py-2.5 bg-yellow-500 hover:bg-yellow-400 text-black font-semibold rounded-lg transition active:scale-[0.98]"
-                    >
-                        我知道了
-                    </button>
-                </div>
+                ))}
             </div>
-        </div>
+        </window.HeroModal>
     );
 };

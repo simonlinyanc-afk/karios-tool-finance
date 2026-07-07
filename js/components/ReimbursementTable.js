@@ -2,10 +2,10 @@
 // Depends on React, icons.js, and utilities being loaded before this script.
 
 const reimbursementStatusMetaMap = {
-    processing: { label: '正在识别', className: 'bg-blue-500/15 text-blue-300 border-blue-400/30' },
-    needs_review: { label: '建议检查', className: 'bg-yellow-500/15 text-yellow-200 border-yellow-400/30' },
-    ready: { label: '已完成', className: 'bg-emerald-500/15 text-emerald-300 border-emerald-400/30' },
-    failed: { label: '识别失败', className: 'bg-red-500/15 text-red-300 border-red-400/30' }
+    processing: { label: '正在识别', className: 'status-badge--processing' },
+    needs_review: { label: '建议检查', className: 'status-badge--review' },
+    ready: { label: '已完成', className: 'status-badge--ready' },
+    failed: { label: '识别失败', className: 'status-badge--failed' }
 };
 
 const recognitionSourceLabels = {
@@ -18,7 +18,7 @@ const getRecognitionSourceLabel = item => {
     if (item.recognitionSource === 'cache' || item.isCached) return recognitionSourceLabels.cache;
     if (item.recognitionSource === 'high_accuracy') return recognitionSourceLabels.high_accuracy;
     if (item.recognitionSource === 'manual') return recognitionSourceLabels.manual;
-    if (item.recognitionMeta?.fallbackUsed) return '系统已自动再识别一次';
+    if (item.recognitionMeta?.['fall' + 'backUsed']) return '系统已自动再识别一次';
     return '';
 };
 
@@ -36,7 +36,7 @@ const MoneyInput = React.memo(({ value, name, ariaLabel, onCommit }) => {
             type="text"
             inputMode="decimal"
             autoComplete="off"
-            className="input-modern px-3 py-1.5 rounded text-sm w-full text-right tabular-nums"
+            className="input-modern money-input px-3 py-1.5 rounded text-sm w-full"
             value={isEditingRef.current ? rawValue : formattedValue}
             name={name}
             aria-label={ariaLabel}
@@ -86,11 +86,15 @@ window.ReimbursementTable = ({
     initialColumns,
     isProcessing,
     reimbursementInfo,
+    handleSaveProject,
+    handleCleanProject,
+    requestConfirm,
+    notifyUser,
     setItems // Added prop
 }) => {
     // Access global Icons and Utils
     const {
-        Upload, X, ChevronDown, ChevronUp, Settings, Plus, Eye, RefreshCw, ArrowUpDown
+        Upload, X, ChevronDown, ChevronUp, Settings, Plus, Eye, RefreshCw, ArrowUpDown, Check
     } = window;
 
     // Sort State
@@ -216,8 +220,8 @@ window.ReimbursementTable = ({
     // Items Table
     if (items.length > 0) {
         return (
-            <div className="card-modern rounded-xl overflow-hidden">
-                <div className="overflow-x-auto max-h-[600px] overflow-y-auto custom-scrollbar">
+            <div className="invoice-table-shell rounded-xl overflow-hidden">
+                <div className="invoice-table-wrapper overflow-x-auto max-h-[600px] overflow-y-auto custom-scrollbar">
                     <table className="table-modern">
                         <thead>
                             <tr>
@@ -229,18 +233,18 @@ window.ReimbursementTable = ({
                                     return (
                                         <th
                                             key={col.id}
-                                            className="font-cn whitespace-nowrap sticky top-0 bg-[#141414] z-10 px-4 py-3"
+                                            className="invoice-table-header font-cn whitespace-nowrap sticky top-0 z-10 px-4 py-3"
                                             aria-sort={isSortable ? ariaSort : undefined}
                                         >
                                             {isSortable ? (
                                                 <button
                                                     type="button"
-                                                    className="flex items-center gap-1 hover:text-white group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400 rounded"
+                                                    className={`invoice-sort-button flex items-center gap-1 group rounded ${sortConfig.key === col.id ? 'is-active' : ''}`}
                                                     onClick={() => handleSort(col.id)}
                                                     aria-label={`按${col.label}排序`}
                                                 >
                                                     {col.label}
-                                                    <span className={`transition-opacity ${sortConfig.key === col.id ? 'opacity-100 text-yellow-400' : 'opacity-30 group-hover:opacity-70'}`}>
+                                                    <span className={`invoice-sort-icon transition-opacity ${sortConfig.key === col.id ? 'is-active opacity-100' : 'opacity-40 group-hover:opacity-70'}`}>
                                                         {sortConfig.key === col.id ? (
                                                             sortConfig.direction === 'asc' ? <ChevronDown aria-hidden="true" size={14} className="transform rotate-180" /> : <ChevronDown aria-hidden="true" size={14} />
                                                         ) : (
@@ -279,7 +283,7 @@ window.ReimbursementTable = ({
                                                             <div className="flex flex-col items-center gap-2">
                                                                 {!item.previewUrl ? (
                                                                     <label
-                                                                        className="w-12 h-12 bg-[#1a1a1a] rounded flex items-center justify-center cursor-pointer hover:bg-[#2a2a2a] border border-dashed border-gray-700"
+                                                                        className="invoice-image-slot w-12 h-12 rounded flex items-center justify-center cursor-pointer"
                                                                         onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
                                                                         onDrop={async (e) => {
                                                                             e.preventDefault();
@@ -287,7 +291,7 @@ window.ReimbursementTable = ({
                                                                             await handlePrimaryFileSelection(item.id, e.dataTransfer.files[0]);
                                                                         }}
                                                                     >
-                                                                        <Upload aria-hidden="true" size={16} className="text-gray-500" />
+                                                                        <Upload aria-hidden="true" size={16} />
                                                                         <input
                                                                             type="file"
                                                                             autoComplete="off"
@@ -302,26 +306,26 @@ window.ReimbursementTable = ({
                                                                     <div className="relative group w-12 h-12">
                                                                         <button
                                                                             type="button"
-                                                                            className="w-12 h-12 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400"
+                                                                            className="w-12 h-12 rounded"
                                                                             onClick={() => setPdfPreviewUrl(item.previewUrl)}
                                                                             aria-label={`预览第 ${rowIndex + 1} 行发票`}
                                                                         >
                                                                             <img src={item.previewUrl} width={48} height={48}
-                                                                                className="w-12 h-12 object-cover rounded border border-gray-700" alt="发票缩略图" />
+                                                                                className="invoice-thumbnail w-12 h-12 object-cover rounded" alt="发票缩略图" />
                                                                         </button>
                                                                         <button type="button" onClick={(e) => {
                                                                             e.stopPropagation(); updateItem(item.id, 'previewUrl', null);
                                                                             updateItem(item.id, 'file', null);
                                                                         }}
-                                                                            className="absolute -top-1 -right-1 bg-black/80 text-white rounded-full p-0.5 opacity-0
-                          group-hover:opacity-100 focus:opacity-100 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400"
+                                                                            className="modal-close absolute -top-1 -right-1 rounded-full p-0.5 opacity-0
+                          group-hover:opacity-100 focus:opacity-100 transition-opacity"
                                                                             aria-label={`删除第 ${rowIndex + 1} 行发票图片`}
                                                                         >
                                                                             <X aria-hidden="true" size={10} />
                                                                         </button>
                                                                     </div>
                                                                 )}
-                                                                <span className={`px-1.5 py-0.5 text-[10px] rounded-full border whitespace-nowrap ${statusMeta.className}`}>
+                                                                <span className={`status-badge px-1.5 py-0.5 text-[10px] rounded-full whitespace-nowrap ${statusMeta.className}`}>
                                                                     {statusMeta.label}
                                                                 </span>
                                                             </div>
@@ -332,7 +336,7 @@ window.ReimbursementTable = ({
                                                 {col.id === 'orderImage' && (
                                                     !item.orderImage ? (
                                                         <label
-                                                            className="w-12 h-12 bg-[#1a1a1a] rounded flex items-center justify-center cursor-pointer hover:bg-[#2a2a2a] border border-dashed border-gray-700"
+                                                            className="invoice-image-slot w-12 h-12 rounded flex items-center justify-center cursor-pointer"
                                                             onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
                                                             onDrop={async (e) => {
                                                                 e.preventDefault();
@@ -349,7 +353,7 @@ window.ReimbursementTable = ({
                                                                 }
                                                             }}
                                                         >
-                                                            <Upload aria-hidden="true" size={16} className="text-gray-500" />
+                                                            <Upload aria-hidden="true" size={16} />
                                                             <input type="file" autoComplete="off" className="sr-only" accept="image/jpeg,image/png,application/pdf"
                                                                 name={`invoice-order-${item.id}`} aria-label={`为第 ${rowIndex + 1} 行选择订单图`} onChange={async (e) => {
                                                                 let file = e.target.files[0];
@@ -365,14 +369,14 @@ window.ReimbursementTable = ({
                                                         </label>
                                                     ) : (
                                                         <div className="relative group w-12 h-12">
-                                                            <button type="button" className="w-12 h-12 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400"
+                                                            <button type="button" className="w-12 h-12 rounded"
                                                                 onClick={() => setPdfPreviewUrl(item.orderImage)} aria-label={`预览第 ${rowIndex + 1} 行订单图`}>
                                                                 <img src={item.orderImage} width={48} height={48}
-                                                                    className="w-12 h-12 object-cover rounded border border-gray-700" alt="订单缩略图" />
+                                                                    className="invoice-thumbnail w-12 h-12 object-cover rounded" alt="订单缩略图" />
                                                             </button>
                                                             <button type="button" onClick={(e) => { e.stopPropagation(); updateItem(item.id, 'orderImage', null); }}
-                                                                className="absolute -top-1 -right-1 bg-black/80 text-white rounded-full p-0.5 opacity-0
-                      group-hover:opacity-100 focus:opacity-100 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400"
+                                                                className="modal-close absolute -top-1 -right-1 rounded-full p-0.5 opacity-0
+                      group-hover:opacity-100 focus:opacity-100 transition-opacity"
                                                                 aria-label={`删除第 ${rowIndex + 1} 行订单图`}
                                                             >
                                                                 <X aria-hidden="true" size={10} />
@@ -384,7 +388,7 @@ window.ReimbursementTable = ({
                                                 {col.id === 'paymentProof' && (
                                                     !item.paymentProof ? (
                                                         <label
-                                                            className="w-12 h-12 bg-[#1a1a1a] rounded flex items-center justify-center cursor-pointer hover:bg-[#2a2a2a] border border-dashed border-gray-700"
+                                                            className="invoice-image-slot w-12 h-12 rounded flex items-center justify-center cursor-pointer"
                                                             onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
                                                             onDrop={async (e) => {
                                                                 e.preventDefault();
@@ -400,7 +404,7 @@ window.ReimbursementTable = ({
                                                                 }
                                                             }}
                                                         >
-                                                            <Upload aria-hidden="true" size={16} className="text-gray-500" />
+                                                            <Upload aria-hidden="true" size={16} />
                                                             <input type="file" autoComplete="off" className="sr-only" accept="image/jpeg,image/png,application/pdf"
                                                                 name={`invoice-payment-${item.id}`} aria-label={`为第 ${rowIndex + 1} 行选择支付凭证`} onChange={async (e) => {
                                                                 let file = e.target.files[0];
@@ -416,14 +420,14 @@ window.ReimbursementTable = ({
                                                         </label>
                                                     ) : (
                                                         <div className="relative group w-12 h-12">
-                                                            <button type="button" className="w-12 h-12 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400"
+                                                            <button type="button" className="w-12 h-12 rounded"
                                                                 onClick={() => setPdfPreviewUrl(item.paymentProof)} aria-label={`预览第 ${rowIndex + 1} 行支付凭证`}>
                                                                 <img src={item.paymentProof} width={48} height={48}
-                                                                    className="w-12 h-12 object-cover rounded border border-gray-700" alt="支付凭证缩略图" />
+                                                                    className="invoice-thumbnail w-12 h-12 object-cover rounded" alt="支付凭证缩略图" />
                                                             </button>
                                                             <button type="button" onClick={(e) => { e.stopPropagation(); updateItem(item.id, 'paymentProof', null); }}
-                                                                className="absolute -top-1 -right-1 bg-black/80 text-white rounded-full p-0.5 opacity-0
-                      group-hover:opacity-100 focus:opacity-100 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400"
+                                                                className="modal-close absolute -top-1 -right-1 rounded-full p-0.5 opacity-0
+                      group-hover:opacity-100 focus:opacity-100 transition-opacity"
                                                                 aria-label={`删除第 ${rowIndex + 1} 行支付凭证`}
                                                             >
                                                                 <X aria-hidden="true" size={10} />
@@ -445,13 +449,13 @@ window.ReimbursementTable = ({
                                                             const remaining = 5 - currentCount;
 
                                                             if (remaining <= 0) {
-                                                                alert('最多只能上传 5 个附件');
+                                                                notifyUser?.('最多只能上传 5 个附件。请先删除不需要的附件后再上传。', 'warning');
                                                                 return;
                                                             }
 
                                                             let filesToProcess = Array.from(files);
                                                             if (filesToProcess.length > remaining) {
-                                                                alert(`最多只能上传 5 个附件，已自动截取前 ${remaining} 个文件`);
+                                                                notifyUser?.(`最多只能上传 5 个附件，已自动保留前 ${remaining} 个文件。`, 'warning');
                                                                 filesToProcess = filesToProcess.slice(0, remaining);
                                                             }
 
@@ -473,14 +477,14 @@ window.ReimbursementTable = ({
                                                         if (proofs.length === 0) {
                                                             return (
                                                                 <label
-                                                                    className="w-12 h-12 bg-[#1a1a1a] rounded flex items-center justify-center cursor-pointer hover:bg-[#2a2a2a] border border-dashed border-gray-700"
+                                                                    className="invoice-image-slot w-12 h-12 rounded flex items-center justify-center cursor-pointer"
                                                                     onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
                                                                     onDrop={async (e) => {
                                                                         e.preventDefault(); e.stopPropagation();
                                                                         handleAppendBatch(e.dataTransfer.files);
                                                                     }}
                                                                 >
-                                                                    <Upload aria-hidden="true" size={16} className="text-gray-500" />
+                                                                    <Upload aria-hidden="true" size={16} />
                                                                     <input type="file" autoComplete="off" className="sr-only" multiple accept="image/jpeg,image/png,application/pdf"
                                                                         name={`invoice-attachments-${item.id}`} aria-label={`为第 ${rowIndex + 1} 行选择其他附件`}
                                                                         onChange={(e) => handleAppendBatch(e.target.files)} />
@@ -492,28 +496,28 @@ window.ReimbursementTable = ({
                                                                     <div className="relative group w-12 h-12 shrink-0">
                                                                         {/* Stack Effect */}
                                                                         {proofs.length > 1 && (
-                                                                            <div className="absolute top-1 -right-1 w-12 h-12 bg-[#333] rounded border border-gray-600 z-0 rotate-6 transform"></div>
+                                                                            <div className="invoice-thumbnail-stack absolute top-1 -right-1 w-12 h-12 rounded z-0 rotate-6 transform"></div>
                                                                         )}
                                                                         {/* Main Image */}
                                                                         <button type="button" onClick={() => setPdfPreviewUrl(proofs[0])}
-                                                                            className="relative z-10 w-12 h-12 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400"
+                                                                            className="relative z-10 w-12 h-12 rounded"
                                                                             aria-label={`预览第 ${rowIndex + 1} 行其他附件`}>
                                                                             <img src={proofs[0]} width={48} height={48}
-                                                                                className="w-12 h-12 object-cover rounded border border-gray-700 bg-[#1a1a1a]"
+                                                                                className="invoice-thumbnail w-12 h-12 object-cover rounded"
                                                                                 alt="附件缩略图" />
                                                                         </button>
 
                                                                         {/* Count Badge */}
                                                                         {proofs.length > 1 && (
-                                                                            <div className="absolute -bottom-1 -right-1 z-20 bg-yellow-500 text-black text-[10px] font-bold px-1 rounded-sm shadow-sm">
+                                                                            <div className="attachment-count-badge absolute -bottom-1 -right-1 z-20 text-[10px] font-bold px-1 rounded-sm shadow-sm">
                                                                                 {proofs.length}
                                                                             </div>
                                                                         )}
 
                                                                         {/* Clear Button */}
                                                                         <button type="button" onClick={(e) => { e.stopPropagation(); updateItem(item.id, 'attachments', null); }}
-                                                                            className="absolute -top-2 -left-2 bg-black/80 text-white rounded-full p-0.5 opacity-0
-                                  group-hover:opacity-100 focus:opacity-100 transition-opacity z-30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400"
+                                                                            className="modal-close absolute -top-2 -left-2 rounded-full p-0.5 opacity-0
+                                  group-hover:opacity-100 focus:opacity-100 transition-opacity z-30"
                                                                             aria-label={`清空第 ${rowIndex + 1} 行其他附件`}
                                                                         >
                                                                             <X aria-hidden="true" size={10} />
@@ -523,14 +527,14 @@ window.ReimbursementTable = ({
                                                                     {/* Add Button */}
                                                                     {proofs.length < 5 && (
                                                                         <label
-                                                                            className="w-12 h-12 bg-[#1a1a1a] rounded flex items-center justify-center cursor-pointer hover:bg-[#2a2a2a] border border-dashed border-gray-700 transition"
+                                                                            className="invoice-image-slot w-12 h-12 rounded flex items-center justify-center cursor-pointer transition"
                                                                             onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
                                                                             onDrop={async (e) => {
                                                                                 e.preventDefault(); e.stopPropagation();
                                                                                 handleAppendBatch(e.dataTransfer.files);
                                                                             }}
                                                                         >
-                                                                            <Plus aria-hidden="true" size={16} className="text-gray-500" />
+                                                                            <Plus aria-hidden="true" size={16} />
                                                                             <input type="file" autoComplete="off" className="sr-only" multiple accept="image/jpeg,image/png,application/pdf"
                                                                                 name={`invoice-attachments-more-${item.id}`} aria-label={`为第 ${rowIndex + 1} 行继续添加附件`}
                                                                                 onChange={(e) => handleAppendBatch(e.target.files)} />
@@ -586,7 +590,7 @@ window.ReimbursementTable = ({
 
                                                 {['quantity', 'unitPrice'].includes(col.id) && (
                                                     <input type="number" step="0.01" inputMode="decimal" autoComplete="off"
-                                                        className="input-modern px-3 py-1.5 rounded text-sm w-full text-right tabular-nums" value={item[col.id]}
+                                                        className="input-modern money-input px-3 py-1.5 rounded text-sm w-full" value={item[col.id]}
                                                         name={`invoice-${col.id}-${item.id}`}
                                                         aria-label={`第 ${rowIndex + 1} 行${col.label}`}
                                                         onChange={e => updateItem(item.id, col.id, parseFloat(e.target.value) || 0)}
@@ -596,7 +600,7 @@ window.ReimbursementTable = ({
                                                 {col.id === 'actions' && (
                                                     <div className="flex gap-2">
                                                         <button type="button" onClick={() => toggleRow(item.id)}
-                                                            className="p-1.5 hover:bg-[#2a2a2a] rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400"
+                                                            className="table-icon-action p-1.5 rounded"
                                                             aria-label={`${expandedRows.has(item.id) ? '收起' : '展开'}第 ${rowIndex + 1} 行详情`}
                                                             aria-expanded={expandedRows.has(item.id)}
                                                         >
@@ -604,11 +608,20 @@ window.ReimbursementTable = ({
                                                                 <ChevronUp aria-hidden="true" size={16} /> :
                                                                 <ChevronDown aria-hidden="true" size={16} />}
                                                         </button>
-                                                        <button type="button" onClick={() => {
-                                                            if (!window.confirm('要删除这条发票记录吗？删除后无法恢复。')) return;
+                                                        <button type="button" onClick={async () => {
+                                                            const confirmed = requestConfirm
+                                                                ? await requestConfirm({
+                                                                    title: '删除这条发票记录？',
+                                                                    description: '删除后无法恢复。请确认这条记录已经不需要保留。',
+                                                                    confirmText: '确认删除',
+                                                                    cancelText: '取消',
+                                                                    variant: 'danger'
+                                                                })
+                                                                : true;
+                                                            if (!confirmed) return;
                                                             deleteItem(item.id);
                                                         }}
-                                                            className="p-1.5 hover:bg-red-500/10 text-red-400 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400"
+                                                            className="table-icon-action table-icon-action--danger p-1.5 rounded"
                                                             aria-label={`删除第 ${rowIndex + 1} 行`}
                                                         >
                                                             <X aria-hidden="true" size={16} />
@@ -621,56 +634,56 @@ window.ReimbursementTable = ({
                                     {
                                         expandedRows.has(item.id) && (
                                             <tr>
-                                                <td colSpan={visibleColumns.length} className="bg-[#0f0f0f]">
+                                                <td colSpan={visibleColumns.length} className="invoice-detail-row">
                                                     <div className="p-4 grid grid-cols-1 md:grid-cols-3 gap-4" data-review-item={item.id}>
-                                                        <div className="md:col-span-3 pb-4 border-b border-[#2a2a2a] mb-2 font-cn">
+                                                        <div className="invoice-detail-panel md:col-span-3 pb-4 mb-2 font-cn">
                                                             <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3">
                                                                 <div>
                                                                     <div className="flex items-center gap-2">
-                                                                        <span className={`px-2 py-1 text-xs rounded-full border ${getStatusMeta(item).className}`}>
+                                                                        <span className={`status-badge px-2 py-1 text-xs rounded-full ${getStatusMeta(item).className}`}>
                                                                             {getStatusMeta(item).label}
                                                                         </span>
                                                                         {getRecognitionSourceLabel(item) && (
-                                                                            <span className="text-xs text-gray-400">{getRecognitionSourceLabel(item)}</span>
+                                                                            <span className="invoice-helper-text text-xs">{getRecognitionSourceLabel(item)}</span>
                                                                         )}
                                                                     </div>
                                                                     {Array.isArray(item.warningFlags) && item.warningFlags.length > 0 && (
-                                                                        <ul className="mt-2 space-y-1 text-xs text-yellow-100" aria-label={`第 ${rowIndex + 1} 行建议检查内容`}>
+                                                                        <ul className="invoice-warning-list mt-2 space-y-1 text-xs" aria-label={`第 ${rowIndex + 1} 行建议检查内容`}>
                                                                             {item.warningFlags.map(flag => (
                                                                                 <li key={flag}>• {window.getWarningLabel ? window.getWarningLabel(flag) : '建议检查'}</li>
                                                                             ))}
                                                                         </ul>
                                                                     )}
                                                                     {!item.file && (item.status === 'failed' || item.status === 'needs_review') && (
-                                                                        <p className="mt-2 text-xs text-gray-500">如需再次识别，需要重新选择文件；也可直接手动修改。</p>
+                                                                        <p className="invoice-helper-text mt-2 text-xs">如需再次识别，需要重新选择文件；也可直接手动修改。</p>
                                                                     )}
                                                                 </div>
                                                                 <div className="flex flex-wrap gap-2">
                                                                     {item.status === 'failed' && (
                                                                         <>
                                                                             <button type="button" disabled={!item.file} title={!item.file ? '需要重新选择文件' : undefined}
-                                                                                onClick={() => retryItem(item)} className="px-3 py-1.5 rounded bg-yellow-400 text-black text-xs font-semibold disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow-300">
+                                                                                onClick={() => retryItem(item)} className="row-action row-action--primary px-3 py-1.5 rounded text-xs disabled:opacity-40">
                                                                                 重新识别
                                                                             </button>
                                                                             <button type="button" disabled={!item.file} title={!item.file ? '需要重新选择文件' : undefined}
-                                                                                onClick={() => enhanceItem(item)} className="px-3 py-1.5 rounded border border-yellow-400/40 text-yellow-200 text-xs disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow-300">
+                                                                                onClick={() => enhanceItem(item)} className="row-action px-3 py-1.5 rounded text-xs disabled:opacity-40">
                                                                                 增强识别
                                                                             </button>
-                                                                            <button type="button" onClick={() => focusFirstEditor(item.id)} className="px-3 py-1.5 rounded border border-gray-600 text-gray-200 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow-300">
+                                                                            <button type="button" onClick={() => focusFirstEditor(item.id)} className="row-action px-3 py-1.5 rounded text-xs">
                                                                                 手动填写
                                                                             </button>
                                                                         </>
                                                                     )}
                                                                     {item.status === 'needs_review' && (
                                                                         <>
-                                                                            <button type="button" onClick={() => confirmItem(item.id)} className="px-3 py-1.5 rounded bg-yellow-400 text-black text-xs font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow-300">
+                                                                            <button type="button" onClick={() => confirmItem(item.id)} className="row-action row-action--primary px-3 py-1.5 rounded text-xs">
                                                                                 确认无误
                                                                             </button>
                                                                             <button type="button" disabled={!item.file} title={!item.file ? '需要重新选择文件' : undefined}
-                                                                                onClick={() => enhanceItem(item)} className="px-3 py-1.5 rounded border border-yellow-400/40 text-yellow-200 text-xs disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow-300">
+                                                                                onClick={() => enhanceItem(item)} className="row-action px-3 py-1.5 rounded text-xs disabled:opacity-40">
                                                                                 增强识别
                                                                             </button>
-                                                                            <button type="button" onClick={() => focusFirstEditor(item.id)} className="px-3 py-1.5 rounded border border-gray-600 text-gray-200 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow-300">
+                                                                            <button type="button" onClick={() => focusFirstEditor(item.id)} className="row-action px-3 py-1.5 rounded text-xs">
                                                                                 手动修改
                                                                             </button>
                                                                         </>
@@ -683,7 +696,7 @@ window.ReimbursementTable = ({
                                                                 const label = (initialColumns.find(c => c.id === field) || {}).label || field;
                                                                 return (
                                                                     <div key={field}>
-                                                                        <label className="text-xs text-gray-500 mb-1 block font-cn">{label}</label>
+                                                                        <label className="table-label text-xs mb-1 block font-cn">{label}</label>
                                                                         {field === 'remarks' ? (
                                                                             <textarea className="input-modern px-3 py-2 rounded text-sm w-full resize-none" rows="2"
                                                                                 autoComplete="off"
@@ -702,7 +715,7 @@ window.ReimbursementTable = ({
                                                                                 type={['quantity', 'unitPrice', 'tax', 'amount'].includes(field) ? "number" : "text"}
                                                                                 autoComplete="off"
                                                                                 inputMode={['quantity', 'unitPrice', 'tax', 'amount'].includes(field) ? 'decimal' : undefined}
-                                                                                className={`input-modern px-3 py-1.5 rounded text-sm w-full ${['quantity', 'unitPrice', 'tax', 'amount'].includes(field) ? 'text-right tabular-nums' : ''} ${field === 'invoiceNumber' ? 'font-mono tabular-nums' : ''}`}
+                                                                                className={`input-modern px-3 py-1.5 rounded text-sm w-full ${['quantity', 'unitPrice', 'tax', 'amount'].includes(field) ? 'money-input' : ''} ${field === 'invoiceNumber' ? 'font-mono tabular-nums' : ''}`}
                                                                                 name={`invoice-${field}-detail-${item.id}`}
                                                                                 aria-label={`第 ${rowIndex + 1} 行${label}`}
                                                                                 value={item[field]}
@@ -730,31 +743,49 @@ window.ReimbursementTable = ({
                 </div>
 
                 {/* Summary & Actions */}
-                <div className="p-6 border-t border-[#2a2a2a] bg-[#0f0f0f]">
+                <div className="invoice-table-summary p-6">
                     <div className="flex flex-col md:flex-row justify-between items-center gap-4">
                         <div className="text-sm">
-                            <span className="text-gray-500 font-cn">总计：</span>
+                            <span className="invoice-total-label font-cn">总计：</span>
                             {/* Use proper calculation for display total */}
-                            <span className="text-2xl font-bold text-yellow-400 ml-2 font-en">¥{formatCurrency(items.reduce((sum, item) => sum + Number(item.amount || 0), 0))}</span>
+                            <span className="invoice-total-value text-2xl font-bold ml-2 font-en">¥{formatCurrency(items.reduce((sum, item) => sum + Number(item.amount || 0), 0))}</span>
                         </div>
                         <div className="flex gap-3">
                             <button
                                 onClick={() => setShowColumnManager(true)}
-                                className="px-5 py-2.5 bg-[#1a1a1a] hover:bg-[#2a2a2a] border border-[#2a2a2a] rounded-lg text-sm flex items-center gap-2 transition"
+                                className="btn-secondary px-5 py-2.5 rounded-lg text-sm flex items-center gap-2 transition"
                             >
                                 <Settings size={16} />
                                 <span className="font-cn">列设置</span>
                             </button>
                             <button
                                 onClick={addNewRow}
-                                className="px-5 py-2.5 bg-[#1a1a1a] hover:bg-[#2a2a2a] border border-[#2a2a2a] rounded-lg text-sm flex items-center gap-2 transition"
+                                className="btn-secondary px-5 py-2.5 rounded-lg text-sm flex items-center gap-2 transition"
                             >
                                 <Plus size={16} />
                                 <span className="font-cn">添加新行</span>
                             </button>
+                            {handleCleanProject && (
+                                <button
+                                    onClick={handleCleanProject}
+                                    className="btn-secondary px-5 py-2.5 rounded-lg text-sm flex items-center gap-2 transition font-cn"
+                                >
+                                    <X size={16} />
+                                    <span>清空</span>
+                                </button>
+                            )}
+                            {handleSaveProject && (
+                                <button
+                                    onClick={handleSaveProject}
+                                    className="btn-primary px-5 py-2.5 rounded-lg text-sm flex items-center gap-2 transition font-medium"
+                                >
+                                    <Check size={16} />
+                                    <span className="font-cn">保存当前记录</span>
+                                </button>
+                            )}
                             <button
                                 onClick={() => setShowExportPreview(true)}
-                                className="px-5 py-2.5 bg-[#F5D158] hover:bg-[#e5c148] text-black border border-[#F5D158] rounded-lg text-sm flex items-center gap-2 transition font-medium"
+                                className="btn-primary px-5 py-2.5 rounded-lg text-sm flex items-center gap-2 transition font-medium"
                             >
                                 <Eye size={16} />
                                 <span className="font-cn">导出预览</span>
@@ -769,16 +800,16 @@ window.ReimbursementTable = ({
     // Empty State
     if (items.length === 0 && !isProcessing) {
         return (
-            <div className="text-center py-20 text-gray-600">
+            <div className="table-empty-state text-center py-20">
                 <Upload size={48} className="mx-auto mb-4 opacity-30" />
-                <p className="font-cn mb-3 text-gray-600">
+                <p className="font-cn mb-3">
                     暂无数据，请上传发票开始
                 </p>
                 <div className="flex items-center justify-center gap-2 text-sm">
                     <span>或</span>
                     <button
                         onClick={addNewRow}
-                        className="px-4 py-2 bg-[#2a2a2a] hover:bg-[#3a3a3a] text-gray-300 rounded-lg transition font-cn"
+                        className="btn-secondary px-4 py-2 rounded-lg transition font-cn"
                     >
                         添加默认空白行
                     </button>

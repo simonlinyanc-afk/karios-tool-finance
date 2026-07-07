@@ -48,16 +48,7 @@ const ZoomableImage = ({ src, onDelete }) => {
     return (
         <div
             ref={containerRef}
-            className="w-full h-full relative overflow-hidden flex items-center justify-center cursor-grab active:cursor-grabbing select-none"
-            style={{
-                backgroundImage: `linear-gradient(45deg, #1a1a1a 25%, transparent 25%),
-                                 linear-gradient(-45deg, #1a1a1a 25%, transparent 25%),
-                                 linear-gradient(45deg, transparent 75%, #1a1a1a 75%),
-                                 linear-gradient(-45deg, transparent 75%, #1a1a1a 75%)`,
-                backgroundSize: '20px 20px',
-                backgroundPosition: '0 0, 0 10px, 10px -10px, -10px 0px',
-                backgroundColor: '#0a0a0a'
-            }}
+            className="image-preview-viewport w-full h-full relative overflow-hidden flex items-center justify-center cursor-grab active:cursor-grabbing select-none"
             // onWheel removed - handled by Effect
             onMouseDown={handleMouseDown}
             onMouseMove={handleMouseMove}
@@ -65,7 +56,7 @@ const ZoomableImage = ({ src, onDelete }) => {
             onMouseLeave={handleMouseUp}
         >
             {hasError ? (
-                <div className="text-gray-500 flex flex-col items-center gap-2">
+                <div className="modal-subtle flex flex-col items-center gap-2">
                     <span className="text-4xl">⚠️</span>
                     <span>无法加载图片</span>
                     <span className="text-xs opacity-50 font-mono max-w-xs truncate">
@@ -98,15 +89,16 @@ const ZoomableImage = ({ src, onDelete }) => {
             {/* Controls Container */}
             <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-4 z-10" onClick={e => e.stopPropagation()}>
                 {/* Zoom Controls */}
-                <div className="bg-black/60 backdrop-blur-md border border-white/10 rounded-full flex gap-2 p-1.5 shadow-xl items-center">
-                    <button onClick={() => updateState({ scale: state.scale * 0.8 })} className="p-2 hover:bg-white/10 text-white rounded-full transition"><Minus size={18} /></button>
-                    <span className="w-12 text-center text-white/90 text-xs font-mono">{Math.round(state.scale * 100)}%</span>
-                    <button onClick={() => updateState({ scale: state.scale * 1.25 })} className="p-2 hover:bg-white/10 text-white rounded-full transition"><Plus size={18} /></button>
-                    <div className="w-px bg-white/20 h-4 mx-1"></div>
+                <div className="image-preview-toolbar rounded-full flex gap-2 p-1.5 items-center">
+                    <button onClick={() => updateState({ scale: state.scale * 0.8 })} className="p-2 rounded-full transition" aria-label="缩小图片"><Minus size={18} /></button>
+                    <span className="preview-zoom-value w-12 text-center text-xs font-mono">{Math.round(state.scale * 100)}%</span>
+                    <button onClick={() => updateState({ scale: state.scale * 1.25 })} className="p-2 rounded-full transition" aria-label="放大图片"><Plus size={18} /></button>
+                    <div className="w-px h-4 mx-1 modal-divider border-l"></div>
                     <button
                         onClick={() => setState({ scale: 1, x: 0, y: 0, isDragging: false, startX: 0, startY: 0 })}
-                        className="p-2 hover:bg-white/10 text-white rounded-full transition"
+                        className="p-2 rounded-full transition"
                         title="重置"
+                        aria-label="重置图片缩放"
                     >
                         <Maximize size={16} />
                     </button>
@@ -128,7 +120,7 @@ const ZoomableImage = ({ src, onDelete }) => {
 };
 
 // Exported Preview Modal Component
-window.ImagePreviewModal = ({ previewUrl, onClose, items, updateItem }) => {
+window.ImagePreviewModal = ({ previewUrl, onClose, items, updateItem, requestConfirm }) => {
     const { X, ChevronLeft, ChevronRight, Trash2 } = window;
     const [currentIndex, setCurrentIndex] = useState(0);
     const [currentImages, setCurrentImages] = useState([]);
@@ -218,32 +210,41 @@ window.ImagePreviewModal = ({ previewUrl, onClose, items, updateItem }) => {
         }
     };
 
-    const handleDelete = (e) => {
+    const handleDelete = async (e) => {
         e.stopPropagation();
         if (!context || !updateItem) return;
 
-        if (confirm('确定要删除这张图片吗？')) {
-            const { itemId, field } = context;
+        const confirmed = requestConfirm
+            ? await requestConfirm({
+                title: '删除这张图片？',
+                description: '删除后无法恢复。请确认这张图片不再需要作为报销附件。',
+                confirmText: '确认删除',
+                cancelText: '取消',
+                variant: 'danger'
+            })
+            : true;
+        if (!confirmed) return;
 
-            if (currentImages.length > 0) {
-                // Array Mode
-                const newImages = currentImages.filter((_, i) => i !== currentIndex);
-                updateItem(itemId, field, newImages.length > 0 ? newImages : null);
+        const { itemId, field } = context;
 
-                if (newImages.length === 0) {
-                    onClose();
-                } else {
-                    // Stay within bounds
-                    const newIndex = currentIndex >= newImages.length ? newImages.length - 1 : currentIndex;
-                    setCurrentIndex(newIndex);
-                    setCurrentImages(newImages); // Optimistic UI update
-                    setActiveUrl(newImages[newIndex]);
-                }
-            } else {
-                // Single Mode
-                updateItem(itemId, field, null);
+        if (currentImages.length > 0) {
+            // Array Mode
+            const newImages = currentImages.filter((_, i) => i !== currentIndex);
+            updateItem(itemId, field, newImages.length > 0 ? newImages : null);
+
+            if (newImages.length === 0) {
                 onClose();
+            } else {
+                // Stay within bounds
+                const newIndex = currentIndex >= newImages.length ? newImages.length - 1 : currentIndex;
+                setCurrentIndex(newIndex);
+                setCurrentImages(newImages); // Optimistic UI update
+                setActiveUrl(newImages[newIndex]);
             }
+        } else {
+            // Single Mode
+            updateItem(itemId, field, null);
+            onClose();
         }
     };
 
@@ -251,33 +252,33 @@ window.ImagePreviewModal = ({ previewUrl, onClose, items, updateItem }) => {
 
     return (
         <div
-            className="fixed inset-0 bg-black/80 backdrop-blur-md z-[100] flex items-center justify-center p-4 animate-in fade-in duration-200"
+            className="image-preview-overlay fixed inset-0 backdrop-blur-md z-[100] flex items-center justify-center p-4 animate-in fade-in duration-200"
             onClick={onClose}
         >
             <div
-                className="relative bg-[#0a0a0a] rounded-xl overflow-hidden shadow-2xl flex flex-col w-[85vw] h-[90vh] border border-[#2a2a2a]"
+                className="image-preview-shell relative rounded-xl overflow-hidden flex flex-col w-[85vw] h-[90vh]"
                 onClick={e => e.stopPropagation()}
             >
                 {/* Header */}
-                <div className="flex justify-between items-center p-4 border-b border-[#2a2a2a] bg-[#141414]">
+                <div className="image-preview-header flex justify-between items-center p-4 border-b">
                     <div className="flex items-center gap-3">
-                        <span className="font-semibold font-cn text-gray-200">预览</span>
+                        <span className="modal-title font-semibold font-cn">预览</span>
                         {currentImages.length > 1 && (
-                            <span className="text-xs text-yellow-500 font-mono bg-[#333] px-2 py-0.5 rounded">
+                            <span className="fixed-column-badge text-xs font-mono px-2 py-0.5 rounded">
                                 {currentIndex + 1} / {currentImages.length}
                             </span>
                         )}
                     </div>
                     <div className="flex items-center gap-2">
 
-                        <button onClick={onClose} className="p-2 hover:bg-[#333] rounded-full text-gray-400 hover:text-white transition">
+                        <button onClick={onClose} className="modal-close p-2 rounded-full transition" aria-label="关闭预览">
                             <X size={20} />
                         </button>
                     </div>
                 </div>
 
                 {/* Main Viewport */}
-                <div className="flex-1 min-h-0 relative group bg-[#050505]">
+                <div className="flex-1 min-h-0 relative group">
                     <ZoomableImage
                         src={activeUrl}
                         onDelete={updateItem && context ? handleDelete : null}
@@ -288,13 +289,15 @@ window.ImagePreviewModal = ({ previewUrl, onClose, items, updateItem }) => {
                         <>
                             <button
                                 onClick={handlePrev}
-                                className="absolute left-4 top-1/2 -translate-y-1/2 p-3 bg-black/50 hover:bg-black/80 text-white rounded-full backdrop-blur-sm border border-white/10 shadow-lg opacity-0 group-hover:opacity-100 transition-opacity"
+                                className="image-preview-nav absolute left-4 top-1/2 -translate-y-1/2 p-3 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                                aria-label="上一张"
                             >
                                 <ChevronLeft size={24} />
                             </button>
                             <button
                                 onClick={handleNext}
-                                className="absolute right-4 top-1/2 -translate-y-1/2 p-3 bg-black/50 hover:bg-black/80 text-white rounded-full backdrop-blur-sm border border-white/10 shadow-lg opacity-0 group-hover:opacity-100 transition-opacity"
+                                className="image-preview-nav absolute right-4 top-1/2 -translate-y-1/2 p-3 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                                aria-label="下一张"
                             >
                                 <ChevronRight size={24} />
                             </button>
@@ -304,7 +307,7 @@ window.ImagePreviewModal = ({ previewUrl, onClose, items, updateItem }) => {
 
                 {/* Thumbs Strip */}
                 {currentImages.length > 1 && (
-                    <div className="h-20 bg-[#141414] border-t border-[#2a2a2a] flex items-center justify-center p-2 gap-2 overflow-x-auto custom-scrollbar">
+                    <div className="image-preview-thumbs h-20 border-t flex items-center justify-center p-2 gap-2 overflow-x-auto custom-scrollbar">
                         {currentImages.map((img, idx) => (
                             <div
                                 key={idx}

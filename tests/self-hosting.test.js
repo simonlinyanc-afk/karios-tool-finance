@@ -110,7 +110,8 @@ test('createAppServer serves index.html on root path', async (t) => {
   assert.match(response.headers.get('content-type') || '', /text\/html/);
 
   const html = await response.text();
-  assert.match(html, /Kairos Finance·黄鸟报销单系统/);
+  assert.match(html, /Kairos Finance 报销单系统/);
+  assert.doesNotMatch(html, /yellow-bird|Karios/u);
 });
 
 test('createAppServer routes POST /api/ocr with high_accuracy mode to OCR service', async (t) => {

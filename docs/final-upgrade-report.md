@@ -19,7 +19,7 @@
 | 安全边界补强 | `ce11656` | 明确混合鉴权批准方案、生产 Token 边界与日志安全测试 |
 | 部署边界补强 | `c46cb88` | 移除 Vercel 部署脚本，并用测试防止部署能力回流 |
 
-当前仍保留的工作区旧脏文件未纳入上述阶段提交，包括 `.DS_Store`、`README.md`、`js/utils/imageProcessor.js`、`js/components/PDFTemplate.js`、`print.html` 的非阶段改动、黑色 SVG、`tests/self-hosting.test.js`、`tests/ocr-core.test.js` 等。
+阶段收口报告初稿曾记录仍保留的工作区旧脏文件，包括 `.DS_Store`、`README.md`、`js/utils/imageProcessor.js`、`js/components/PDFTemplate.js`、`print.html` 的非阶段改动、黑色 SVG、`tests/self-hosting.test.js`、`tests/ocr-core.test.js` 等；后续已通过 `58dac3a` 与 `8a4674b` 完成归档、清理或提交判断。
 
 ## 架构边界执行情况
 
@@ -143,7 +143,7 @@ Docker Compose 配置解析已通过。早期容器实启曾卡在拉取 `node:2
 | --- | --- | --- | --- |
 | 1 | JPG 上传 | `tests/phase2-browser.test.js`、`tests/phase4-ux.test.js` 使用 `invoice.jpg` / `image/jpeg` 合成 File；另将真实 PDF 发票样本第 1 页派生为 JPEG，POST 到 mock OCR `/api/ocr` 生产鉴权路径返回 200 | 自动化模拟通过；真实样本派生 JPEG API 输入通过；未外发真实 OCR |
 | 2 | PNG 上传 | `/api/ocr` 与安全测试覆盖 `data:image/png`；另将真实 PDF 发票样本第 1 页派生为 PNG，POST 到 mock OCR `/api/ocr` 生产鉴权路径返回 200 | 自动化模拟通过；真实样本派生 PNG API 输入通过；未外发真实 OCR |
-| 3 | PDF 上传 | `UploadZone` accept 包含 `application/pdf`，PDF.js 仍保留；已定位真实 PDF 样本：`tools/test doc/单项目发票 test.pdf`、`tools/test doc/多项目发票-test.pdf`、`林彦丞 3 月报销/【62580约车-19.60元-1个行程】高德打车电子发票.pdf`；使用 headless Chrome/CDP 加载真实 `pdf.min.js`、`imageProcessor.js`、`ocrClient.js`，将真实 PDF File 交给 `processInvoiceFile(..., isPDF=true)`，mock `/api/ocr` 收到 `data:image/jpeg;base64,...` | 通过；真实 PDF 浏览器转换链路已验证，未外发真实 OCR |
+| 3 | PDF 上传 | `UploadZone` accept 包含 `application/pdf`，PDF.js 仍保留；已定位真实 PDF 样本：`真实样本 A`、`真实样本 B`、`真实样本 C`；使用 headless Chrome/CDP 加载真实 `pdf.min.js`、`imageProcessor.js`、`ocrClient.js`，将真实 PDF File 交给 `processInvoiceFile(..., isPDF=true)`，mock `/api/ocr` 收到 `data:image/jpeg;base64,...` | 通过；真实 PDF 浏览器转换链路已验证，未外发真实 OCR |
 | 4 | OCR 缓存命中 | `tests/phase2-browser.test.js` 覆盖 OCR cache 保存与恢复，UI 显示“已从本地记录恢复” | 通过 |
 | 5 | `qwen3-vl-flash` 正常识别 | `tests/model-router.test.js`、`tests/ocr-service.test.js` 覆盖 primary 路由；模型名由环境变量读取；已用虚构合成发票图通过本地 `/api/ocr` 调用真实 DashScope，返回 `status=ready`、`meta.model=qwen3-vl-flash`、`fallbackUsed=false` | 自动化模拟通过；真实 DashScope 合成图验证通过 |
 | 6 | `qwen3.7-plus` 自动复查 | `tests/model-router.test.js`、`tests/ocr-service.test.js` 覆盖 primary 失败、校验失败、JSON 解析失败后复查；已用虚构空白图通过本地 `/api/ocr` 调用真实 DashScope，返回 `status=needs_review`、`meta.model=qwen3.7-plus`、`fallbackUsed=true` | 自动化模拟通过；真实 DashScope 合成图验证通过 |
@@ -230,8 +230,8 @@ docker compose -f /private/tmp/kairos-finance-compose-test.yml -p kairos-phase7-
 真实样本输入复验：
 
 ```bash
-pdftoppm -png -singlefile "tools/test doc/单项目发票 test.pdf" /private/tmp/kairos-real-invoice-sample
-pdftoppm -jpeg -singlefile "tools/test doc/单项目发票 test.pdf" /private/tmp/kairos-real-invoice-sample
+pdftoppm -png -singlefile "真实样本 A.pdf" /private/tmp/kairos-real-invoice-sample
+pdftoppm -jpeg -singlefile "真实样本 A.pdf" /private/tmp/kairos-real-invoice-sample
 node /private/tmp/kairos-real-sample-check.mjs
 ```
 
@@ -243,7 +243,7 @@ node /private/tmp/kairos-real-sample-check.mjs
 node /private/tmp/kairos-pdf-browser-check.mjs
 ```
 
-验证方式：临时脚本启动只读本地 HTTP server 与 headless Google Chrome，通过 Chrome DevTools Protocol 打开最小验证页；页面加载仓库真实 `libs/pdf.min.js`、`libs/pdf.worker.min.js`、`js/utils/imageProcessor.js`、`js/utils/ocrClient.js`，注入 `tools/test doc/单项目发票 test.pdf` 为浏览器 `File`，调用 `window.processInvoiceFile(file, true, ...)`，并在页面内 mock `/api/ocr`。
+验证方式：临时脚本启动只读本地 HTTP server 与 headless Google Chrome，通过 Chrome DevTools Protocol 打开最小验证页；页面加载仓库真实 `libs/pdf.min.js`、`libs/pdf.worker.min.js`、`js/utils/imageProcessor.js`、`js/utils/ocrClient.js`，注入 `真实样本 A` 为浏览器 `File`，调用 `window.processInvoiceFile(file, true, ...)`，并在页面内 mock `/api/ocr`。
 
 结果：`pdfjsLib` 与 `processImage` 均就绪；`processInvoiceFile` 返回 `isPDF: true`、`recognitionSource: "ocr"`、`previewUrl` 为 `blob:`；mock `/api/ocr` 收到 `mode: "normal"` 与 `data:image/jpeg;base64,...`，证明真实 PDF 第 1 页已由浏览器 PDF.js 转为 JPEG 并进入现有 OCR client 链路。临时脚本与 Chrome profile 已清理。
 
@@ -253,22 +253,22 @@ node /private/tmp/kairos-pdf-browser-check.mjs
 npm run check:qwen-config
 npm run dev
 curl http://127.0.0.1:3000/api/health
-# 将 tools/test doc/*.pdf 第 1 页转换为 /tmp/kairos-real-*.png
+# 将真实样本 A/B/C/D 第 1 页转换为 /tmp/kairos-real-*.png
 # POST /api/ocr mode=normal，覆盖 4 份真实测试文档
-# POST /api/ocr mode=high_accuracy，抽检脏发票样本
+# POST /api/ocr mode=high_accuracy，抽检真实样本 B
 ```
 
 结果：
 
 | 测试文件 | 模式 | HTTP | 状态 | 最终模型 | 自动再识别 | 识别摘要 |
 | --- | --- | ---: | --- | --- | --- | --- |
-| `多项目发票-test.pdf` | `normal` | 200 | `ready` | `qwen3.7-plus` | 是 | 日期 `2025-12-22`；发票号 `25442000000815243274`；价税合计 `196.99`；税额 `22.66` |
-| `脏发票样本.pdf` | `normal` | 200 | `ready` | `qwen3-vl-flash` | 否 | 日期 `2020-07-01`；发票号 `2631200000238172406`；价税合计 `1212.97`；税额 `12.13` |
-| `单项目发票 test.pdf` | `normal` | 200 | `ready` | `qwen3-vl-flash` | 否 | 日期 `2025-12-24`；发票号 `2544200000082405526`；价税合计 `220.21`；税额 `2.18` |
-| `高铁票 test.pdf` | `normal` | 200 | `ready` | `qwen3-vl-flash` | 否 | 日期 `2025-12-23`；发票号 `2533913237400076884`；价税合计 `139`；税额 `0` |
-| `脏发票样本.pdf` | `high_accuracy` | 200 | `ready` | `qwen3-vl-plus` | 否 | 日期 `2026-07-08`；发票号 `26312000000238172406`；价税合计 `1225`；税额 `12.13` |
+| `真实样本 A` | `normal` | 200 | `ready` | `qwen3.7-plus` | 是 | 日期 `2025-12-22`；发票号 `25442000000815243274`；价税合计 `196.99`；税额 `22.66` |
+| `真实样本 B` | `normal` | 200 | `ready` | `qwen3-vl-flash` | 否 | 日期 `2020-07-01`；发票号 `2631200000238172406`；价税合计 `1212.97`；税额 `12.13` |
+| `真实样本 C` | `normal` | 200 | `ready` | `qwen3-vl-flash` | 否 | 日期 `2025-12-24`；发票号 `2544200000082405526`；价税合计 `220.21`；税额 `2.18` |
+| `真实样本 D` | `normal` | 200 | `ready` | `qwen3-vl-flash` | 否 | 日期 `2025-12-23`；发票号 `2533913237400076884`；价税合计 `139`；税额 `0` |
+| `真实样本 B` | `high_accuracy` | 200 | `ready` | `qwen3-vl-plus` | 否 | 日期 `2026-07-08`；发票号 `26312000000238172406`；价税合计 `1225`；税额 `12.13` |
 
-观察：`high_accuracy` 对脏发票样本给出的日期、销售方、金额等字段与 `normal` 结果存在明显差异，应在 UI 和流程中继续把“增强识别”视为辅助复核入口，而不是绝对正确结果。服务端日志仅包含 `requestId`、`model`、`latencyMs`、`status`、`tokenSource`、`authResult`，未打印 base64、API Key、访问凭证或完整发票内容。
+观察：`high_accuracy` 对真实样本 B 给出的日期、销售方、金额等字段与 `normal` 结果存在明显差异，应在 UI 和流程中继续把“增强识别”视为辅助复核入口，而不是绝对正确结果。服务端日志仅包含 `requestId`、`model`、`latencyMs`、`status`、`tokenSource`、`authResult`，未打印 base64、API Key、访问凭证或完整发票内容。
 
 ## 安全注意事项
 
@@ -276,5 +276,5 @@ README 当前 HEAD 已移除 `sk-...` 形态样例，但历史提交中曾出现
 
 ## 后续建议
 
-1. 已使用 Kairos Finance 业务空间凭证和 `tools/test doc` 真实测试文档补跑端到端 OCR；后续建议进行人工抽检，尤其关注增强识别与标准识别差异较大的样本。
+1. 已使用 Kairos Finance 业务空间凭证和真实样本 A/B/C/D 补跑端到端 OCR；后续建议进行人工抽检，尤其关注增强识别与标准识别差异较大的样本。
 2. 若未来要完全去 CDN 或迁移 Vite，应单独立项，先拆浏览器 Babel 与 Tailwind CDN。

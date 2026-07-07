@@ -1,4 +1,4 @@
-window.HistorySidebar = ({ isOpen, onClose, onRestore, onExport }) => {
+window.HistorySidebar = ({ isOpen, onClose, onRestore, onExport, requestConfirm }) => {
     const { X, RefreshCw, Briefcase, Trash2, Download, Edit2, Check, X: XIcon } = window;
     const [history, setHistory] = React.useState([]);
     const [loading, setLoading] = React.useState(false);
@@ -24,19 +24,35 @@ window.HistorySidebar = ({ isOpen, onClose, onRestore, onExport }) => {
     };
 
     const handleDelete = async (id) => {
-        if (confirm('确定要删除这条记录吗？')) {
-            if (window.storageRepo && window.storageRepo.deleteHistoryItem) {
-                await window.storageRepo.deleteHistoryItem(id);
-                loadHistory(); // Reload list
-            }
+        const confirmed = requestConfirm
+            ? await requestConfirm({
+                title: '删除这条历史记录？',
+                description: '删除后无法恢复。建议确认这条记录已经不再需要。',
+                confirmText: '确认删除',
+                cancelText: '取消',
+                variant: 'danger'
+            })
+            : true;
+        if (!confirmed) return;
+        if (window.storageRepo && window.storageRepo.deleteHistoryItem) {
+            await window.storageRepo.deleteHistoryItem(id);
+            loadHistory(); // Reload list
         }
     };
 
-    const handleRestore = (record) => {
-        if (confirm('恢复历史记录将覆盖当前未保存的编辑，确定要继续吗？')) {
-            onRestore(record);
-            onClose();
-        }
+    const handleRestore = async (record) => {
+        const confirmed = requestConfirm
+            ? await requestConfirm({
+                title: '恢复这条历史记录？',
+                description: '恢复后会覆盖当前未保存的编辑。请先确认当前内容已经不需要保留。',
+                confirmText: '继续恢复',
+                cancelText: '取消',
+                variant: 'warning'
+            })
+            : true;
+        if (!confirmed) return;
+        onRestore(record);
+        onClose();
     };
 
     const startEditing = (record, currentTitle) => {
@@ -57,21 +73,21 @@ window.HistorySidebar = ({ isOpen, onClose, onRestore, onExport }) => {
             {/* Backdrop with Blur - Clicking outside closes sidebar */}
             {isOpen && (
                 <div
-                    className="fixed inset-0 bg-black/60 backdrop-blur-md z-[70] transition-opacity duration-300"
+                    className="history-overlay fixed inset-0 backdrop-blur-md z-[70] transition-opacity duration-300"
                     onClick={onClose}
                 ></div>
             )}
 
-            {/* Sidebar Styling: Dark Mode, Wider (w-96) */}
-            <div className={`fixed inset-y-0 right-0 w-96 bg-[#1a1a1a] shadow-2xl transform transition-transform duration-300 ease-in-out z-[80] border-l border-[#333] ${isOpen ? 'translate-x-0' : 'translate-x-full'}`}>
+            {/* Sidebar Styling */}
+            <div className={`history-sidebar fixed inset-y-0 right-0 w-96 transform transition-transform duration-300 ease-in-out z-[80] ${isOpen ? 'translate-x-0' : 'translate-x-full'}`}>
                 <div className="h-full flex flex-col">
                     {/* Header */}
-                    <div className="p-6 border-b border-[#2a2a2a] flex justify-between items-center bg-[#1a1a1a]">
+                    <div className="history-sidebar__header p-6 border-b flex justify-between items-center">
                         <div>
-                            <h2 className="text-lg font-bold font-cn text-white">版本记录</h2>
-                            <p className="text-xs text-gray-500 font-en tracking-wider mt-0.5">VERSION RECORDS</p>
+                            <h2 className="modal-title text-lg font-bold font-cn">历史记录</h2>
+                            <p className="modal-subtle text-xs font-cn mt-0.5">最近保存的报销记录</p>
                         </div>
-                        <button onClick={onClose} className="text-gray-500 hover:text-white transition-colors p-2 rounded-full hover:bg-[#333]">
+                        <button onClick={onClose} className="modal-close transition-colors p-2 rounded-full" aria-label="关闭历史记录">
                             <X size={20} />
                         </button>
                     </div>
@@ -80,16 +96,16 @@ window.HistorySidebar = ({ isOpen, onClose, onRestore, onExport }) => {
                     <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar">
                         {loading ? (
                             <div className="flex justify-center py-8">
-                                <RefreshCw className="animate-spin text-yellow-500" size={24} />
+                                <RefreshCw className="animate-spin modal-subtle" size={24} />
                             </div>
                         ) : history.length === 0 ? (
-                            <div className="text-center py-10 text-gray-600">
+                            <div className="table-empty-state text-center py-10">
                                 <Briefcase size={40} className="mx-auto mb-3 opacity-20" />
                                 <p className="text-sm font-cn">暂无历史记录</p>
                             </div>
                         ) : (
                             history.map((record) => {
-                                // Data Normalization (Handle v1.0 vs v1.1.0)
+                                // Data Normalization for older saved records
                                 const isV1_1 = !!record.snapshot;
                                 const displayTitle = record.title || record.project || '无标题项目';
                                 const items = isV1_1 ? record.snapshot.items : record.items;
@@ -101,35 +117,36 @@ window.HistorySidebar = ({ isOpen, onClose, onRestore, onExport }) => {
                                 const columns = isV1_1 ? record.snapshot.columns : [];
 
                                 return (
-                                    <div key={record.id} className="group relative bg-[#252525] border border-[#333] rounded-lg p-5 hover:border-yellow-500 hover:shadow-lg hover:shadow-yellow-500/10 transition-all text-left">
+                                    <div key={record.id} className="history-card group relative rounded-lg p-5 text-left">
                                         <div className="flex justify-between items-center mb-5 min-h-[44px]">
                                             {editingId === record.id ? (
                                                 <div className="flex items-center gap-2 flex-1 w-full">
                                                     <input
                                                         type="text"
-                                                        className="flex-1 bg-[#1a1a1a] border border-yellow-500/50 rounded px-2 py-1 text-sm text-white focus:outline-none focus:border-yellow-500"
+                                                        className="input-modern flex-1 rounded px-2 py-1 text-sm"
                                                         value={editName}
                                                         onChange={(e) => setEditName(e.target.value)}
                                                         autoFocus
                                                     />
-                                                    <button onClick={() => saveEdit(record.id)} className="text-green-500 hover:text-green-400 p-1"><Check size={16} /></button>
-                                                    <button onClick={() => setEditingId(null)} className="text-gray-500 hover:text-gray-400 p-1"><XIcon size={16} /></button>
+                                                    <button onClick={() => saveEdit(record.id)} className="table-icon-action p-1 rounded" aria-label="保存版本名称"><Check size={16} /></button>
+                                                    <button onClick={() => setEditingId(null)} className="table-icon-action p-1 rounded" aria-label="取消编辑版本名称"><XIcon size={16} /></button>
                                                 </div>
                                             ) : (
                                                 <>
                                                     <div className="flex flex-col flex-1 pr-2 min-w-0">
                                                         <div className="flex items-start gap-2">
-                                                            <span className="text-sm font-bold text-gray-200 font-cn whitespace-normal break-all leading-tight" title={displayTitle}>
+                                                            <span className="modal-title text-sm font-bold font-cn whitespace-normal break-all leading-tight" title={displayTitle}>
                                                                 {displayTitle}
                                                             </span>
                                                             <button
                                                                 onClick={() => startEditing(record, displayTitle)}
-                                                                className="opacity-0 group-hover:opacity-100 text-gray-500 hover:text-yellow-500 transition-opacity mt-0.5 flex-shrink-0"
+                                                                className="table-icon-action opacity-0 group-hover:opacity-100 transition-opacity mt-0.5 flex-shrink-0 p-1 rounded"
+                                                                aria-label="编辑版本名称"
                                                             >
                                                                 <Edit2 size={12} />
                                                             </button>
                                                         </div>
-                                                        <span className="text-[10px] text-gray-500 font-en font-mono mt-1">
+                                                        <span className="modal-subtle text-[10px] font-en font-mono mt-1">
                                                             {new Date(record.timestamp).toLocaleString()}
                                                         </span>
                                                     </div>
@@ -137,16 +154,16 @@ window.HistorySidebar = ({ isOpen, onClose, onRestore, onExport }) => {
                                             )}
                                         </div>
 
-                                        <div className="bg-[#1f1f1f] p-5 rounded border border-[#2a2a2a]">
-                                            <div className="text-xl font-bold text-yellow-500 font-mono tracking-tight flex items-baseline">
+                                        <div className="history-card__summary p-5 rounded">
+                                            <div className="history-total text-xl font-bold font-mono tracking-tight flex items-baseline">
                                                 <span className="text-xs mr-0.5">¥</span>{formatCurrency(record.total)}
                                             </div>
-                                            <div className="text-xs text-gray-500 font-cn mt-1 flex items-center gap-2">
-                                                <span className="bg-[#333] text-gray-300 px-1.5 py-0.5 rounded font-mono border border-[#444]">{record.count}</span> 张发票
+                                            <div className="modal-subtle text-xs font-cn mt-1 flex items-center gap-2">
+                                                <span className="history-count-badge px-1.5 py-0.5 rounded font-mono">{record.count}</span> 张发票
                                             </div>
                                         </div>
 
-                                        <div className="overflow-hidden max-h-0 opacity-0 group-hover:max-h-14 group-hover:opacity-100 group-hover:mt-5 transition-all duration-300 ease-out">
+                                        <div className="overflow-hidden max-h-0 opacity-0 group-hover:max-h-14 group-hover:opacity-100 group-hover:mt-5 transition-[max-height,opacity,margin] duration-300 ease-out">
                                             <div className="flex gap-2">
                                                 <button
                                                     onClick={() => {
@@ -158,7 +175,7 @@ window.HistorySidebar = ({ isOpen, onClose, onRestore, onExport }) => {
                                                             onClose();
                                                         }
                                                     }}
-                                                    className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-[#333] text-gray-300 rounded hover:bg-[#444] hover:text-white border border-[#444] text-xs font-medium transition-colors"
+                                                    className="history-action flex-1 flex items-center justify-center gap-1.5 py-2 rounded text-xs font-medium"
                                                     title="导出"
                                                 >
                                                     <Download size={14} />
@@ -166,14 +183,15 @@ window.HistorySidebar = ({ isOpen, onClose, onRestore, onExport }) => {
                                                 </button>
                                                 <button
                                                     onClick={() => handleRestore({ ...record, items, info })}
-                                                    className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-[#333] text-gray-300 rounded hover:bg-yellow-500 hover:text-black border border-[#444] hover:border-yellow-500 text-xs font-medium transition-colors"
+                                                    className="history-action flex-1 flex items-center justify-center gap-1.5 py-2 rounded text-xs font-medium"
                                                 >
                                                     <RefreshCw size={14} />
                                                     <span>恢复</span>
                                                 </button>
                                                 <button
                                                     onClick={() => handleDelete(record.id)}
-                                                    className="w-9 flex items-center justify-center bg-[#333] text-gray-500 rounded hover:bg-red-500/20 hover:text-red-500 border border-[#444] hover:border-red-500/50 transition-colors"
+                                                    className="history-action history-action--danger w-9 flex items-center justify-center rounded"
+                                                    aria-label="删除历史记录"
                                                 >
                                                     <Trash2 size={14} />
                                                 </button>
@@ -186,22 +204,30 @@ window.HistorySidebar = ({ isOpen, onClose, onRestore, onExport }) => {
                     </div>
 
                     {/* Footer */}
-                    <div className="p-4 border-t border-[#2a2a2a] bg-[#1a1a1a] flex flex-col gap-3">
+                    <div className="history-sidebar__footer p-4 border-t flex flex-col gap-3">
                         <button
                             onClick={async () => {
-                                if (confirm('确定要清空所有历史记录吗？此操作无法撤销。')) {
-                                    if (window.storageRepo && window.storageRepo.clearAllHistory) {
-                                        await window.storageRepo.clearAllHistory();
-                                        loadHistory();
-                                    }
+                                const confirmed = requestConfirm
+                                    ? await requestConfirm({
+                                        title: '清空所有历史记录？',
+                                        description: '清空后无法恢复。建议确认近期记录已经不再需要。',
+                                        confirmText: '确认清空',
+                                        cancelText: '取消',
+                                        variant: 'danger'
+                                    })
+                                    : true;
+                                if (!confirmed) return;
+                                if (window.storageRepo && window.storageRepo.clearAllHistory) {
+                                    await window.storageRepo.clearAllHistory();
+                                    loadHistory();
                                 }
                             }}
-                            className="w-full py-2.5 border border-[#333] text-gray-500 rounded text-xs font-mono hover:bg-red-500/10 hover:text-red-500 hover:border-red-500/30 transition-colors"
+                            className="history-clear-button w-full py-2.5 rounded text-xs font-cn"
                         >
-                            [ CLEAR ALL ]
+                            清空历史记录
                         </button>
-                        <div className="text-center text-[10px] text-gray-600 font-en">
-                            AUTO-CLEANUP: 30 DAYS
+                        <div className="modal-subtle text-center text-[10px] font-cn">
+                            自动保留最近 30 天记录
                         </div>
                     </div>
                 </div>

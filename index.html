@@ -4,8 +4,104 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Kairos Finance·黄鸟报销单系统</title>
+  <title>Kairos Finance 报销单系统</title>
   <link rel="icon" href="favicon.ico" type="image/x-icon">
+
+  <!-- Kairos theme bootstrap -->
+  <script>
+    (function () {
+      var storageKey = 'kairos-finance.theme';
+      var preferences = { system: true, light: true, dark: true };
+      var mediaQuery = null;
+      var preference = 'system';
+      var subscribers = [];
+
+      function normalizePreference(value) {
+        return preferences[value] ? value : 'system';
+      }
+
+      function readPreference() {
+        try {
+          return normalizePreference(window.localStorage && window.localStorage.getItem(storageKey));
+        } catch (error) {
+          return 'system';
+        }
+      }
+
+      function writePreference(nextPreference) {
+        try {
+          window.localStorage && window.localStorage.setItem(storageKey, nextPreference);
+        } catch (error) {
+          // Theme preference is optional; rendering should continue without storage.
+        }
+      }
+
+      function getMediaQuery() {
+        if (!mediaQuery && window.matchMedia) {
+          mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+        }
+        return mediaQuery;
+      }
+
+      function resolveTheme(nextPreference) {
+        if (nextPreference === 'dark' || nextPreference === 'light') return nextPreference;
+        var query = getMediaQuery();
+        return query && query.matches ? 'dark' : 'light';
+      }
+
+      function applyTheme(shouldNotify) {
+        var actualTheme = resolveTheme(preference);
+        document.documentElement.dataset.theme = actualTheme;
+        document.documentElement.style.colorScheme = actualTheme;
+        if (shouldNotify) {
+          subscribers.slice().forEach(function (subscriber) {
+            subscriber({ preference: preference, actualTheme: actualTheme });
+          });
+        }
+        return actualTheme;
+      }
+
+      preference = readPreference();
+      applyTheme(false);
+
+      var query = getMediaQuery();
+      var handleSystemThemeChange = function () {
+        if (preference === 'system') applyTheme(true);
+      };
+      if (query) {
+        if (query.addEventListener) {
+          query.addEventListener('change', handleSystemThemeChange);
+        } else if (query.addListener) {
+          query.addListener(handleSystemThemeChange);
+        }
+      }
+
+      window.KairosTheme = {
+        storageKey: storageKey,
+        getPreference: function () {
+          return preference;
+        },
+        getActualTheme: function () {
+          return document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light';
+        },
+        setPreference: function (nextPreference) {
+          preference = normalizePreference(nextPreference);
+          writePreference(preference);
+          return {
+            preference: preference,
+            actualTheme: applyTheme(true)
+          };
+        },
+        subscribe: function (subscriber) {
+          if (typeof subscriber !== 'function') return function () {};
+          subscribers.push(subscriber);
+          return function () {
+            subscribers = subscribers.filter(function (item) { return item !== subscriber; });
+          };
+        }
+      };
+    }());
+  </script>
 
   <!-- Google Fonts: Source Han Sans (思源黑体) & Plus Jakarta Sans -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -40,7 +136,7 @@
 
   <!-- Local Storage (Dexie.js) -->
   <script src="https://unpkg.com/dexie/dist/dexie.js"></script>
-  <!-- Spark-MD5 for File Hashing -->
+  <!-- File hashing helper -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/spark-md5/3.0.2/spark-md5.min.js"></script>
 
   <!-- Global Utilities (Must be loaded after libraries) -->
@@ -55,7 +151,9 @@
   <!-- Components -->
   <script type="text/babel" src="js/components/PDFTemplate.js"></script>
   <script type="text/babel" src="js/components/AppHeader.js"></script>
+  <script type="text/babel" src="js/components/HeroModal.js"></script>
   <script type="text/babel" src="js/components/VersionModal.js"></script>
+  <script src="js/utils/uploadWorkspaceState.js"></script>
   <script type="text/babel" src="js/components/UploadZone.js"></script>
   <script type="text/babel" src="js/components/ReimbursementInfo.js"></script>
   <script type="text/babel" src="js/components/ExportPreviewModal.js"></script>
@@ -133,6 +231,7 @@
         imageUrl: null
       });
       const [processingQueue, setProcessingQueue] = useState([]);
+      const [isEnhancing, setIsEnhancing] = useState(false);
       const [expandedRows, setExpandedRows] = useState(new Set());
 
       const [reimbursementInfo, setReimbursementInfo] = useState({
@@ -164,15 +263,20 @@
           .then(res => res.json())
           .then(data => {
             setVersionData(data);
-            const lastSeenVersion = localStorage.getItem('last_seen_version');
-            // Only auto-show if version has changed AND data is valid
-            if (data && data.version && lastSeenVersion !== data.version) {
+            const seenUpgradeKey = data && data.version ? `kairos-finance.seenUpgrade.v${data.version}` : null;
+            if (seenUpgradeKey && localStorage.getItem(seenUpgradeKey) !== 'true') {
               setShowVersionModal(true);
-              localStorage.setItem('last_seen_version', data.version);
             }
           })
           .catch(err => console.error("Failed to load version info", err));
       }, []);
+
+      const closeVersionModal = () => {
+        if (versionData && versionData.version) {
+          localStorage.setItem(`kairos-finance.seenUpgrade.v${versionData.version}`, 'true');
+        }
+        setShowVersionModal(false);
+      };
 
       const closeTutorial = () => {
         localStorage.setItem('tutorialCompleted', 'true');
@@ -199,6 +303,7 @@
         { id: 'taxRate', label: '税率', visible: false, width: 'w-20' },
         { id: 'tax', label: '税额', visible: false, width: 'w-24' },
         { id: 'amount', label: '金额（税后）', visible: true, width: 'w-32' },
+        { id: 'totalWithTax', label: '价税合计', visible: false, width: 'w-32' },
         { id: 'invoiceNumber', label: '发票号码', visible: false, width: 'w-36' },
         { id: 'buyerName', label: '购买方', visible: false, width: 'w-48' },
 
@@ -247,7 +352,9 @@
       const [saveStatus, setSaveStatus] = useState('ready'); // 'ready', 'saving'
       const [showCloseDialog, setShowCloseDialog] = useState(false);
       const [toastState, setToastState] = useState({ show: false, message: '', variant: 'success' });
+      const [confirmDialog, setConfirmDialog] = useState({ show: false });
       const toastTimeoutRef = React.useRef(null);
+      const confirmResolverRef = React.useRef(null);
 
       const normalizeItemForUI = (item, options = {}) => {
         if (!window.normalizeInvoiceItem) return item;
@@ -289,7 +396,7 @@
         project: reimbursementInfo.project || ""
       });
 
-      const triggerToast = (message, variant = 'success') => {
+      const triggerToast = React.useCallback((message, variant = 'success') => {
         if (toastTimeoutRef.current) {
           clearTimeout(toastTimeoutRef.current);
         }
@@ -298,7 +405,37 @@
         toastTimeoutRef.current = setTimeout(() => {
           setToastState(prev => ({ ...prev, show: false }));
         }, 3000);
-      };
+      }, []);
+
+      const requestConfirm = React.useCallback((options = {}) => new Promise(resolve => {
+        confirmResolverRef.current = resolve;
+        setConfirmDialog({
+          show: true,
+          variant: 'default',
+          cancelText: '取消',
+          confirmText: '确认',
+          allowDismiss: true,
+          ...options
+        });
+      }), []);
+
+      const resolveConfirm = React.useCallback((confirmed) => {
+        const resolver = confirmResolverRef.current;
+        confirmResolverRef.current = null;
+        setConfirmDialog(prev => ({ ...prev, show: false }));
+        if (resolver) {
+          resolver(Boolean(confirmed));
+        }
+      }, []);
+
+      useEffect(() => {
+        const handleNotify = (event) => {
+          const detail = event.detail || {};
+          triggerToast(detail.message || '操作完成', detail.variant || 'default');
+        };
+        window.addEventListener('kairos-notify', handleNotify);
+        return () => window.removeEventListener('kairos-notify', handleNotify);
+      }, [triggerToast]);
 
       useEffect(() => {
         return () => {
@@ -308,7 +445,7 @@
         };
       }, []);
 
-      // Auto-save Draft (v1.1.0 Enhanced)
+      // Auto-save Draft
       useEffect(() => {
         if (!autoSaveEnabled) return;
 
@@ -364,10 +501,10 @@
         setDraftData(null);
       };
 
-      // v1.1.0 Project Actions
+      // Project Actions
       const handleSaveProject = async () => {
         if (!items.length && !reimbursementInfo.project) {
-          alert('当前没有可保存内容。请先添加发票或填写项目信息后再保存。');
+          triggerToast('当前没有可保存内容。请先添加发票或填写项目信息后再保存。', 'warning');
           return;
         }
         setSaveStatus('saving');
@@ -440,6 +577,10 @@
         abortControllers.current.clear();
         setIsProcessing(false);
         triggerToast("已取消所有任务", "default");
+        setTimeout(() => {
+          setProcessingQueue([]);
+          setIsEnhancing(false);
+        }, 800);
       };
 
       const handleCancelItem = (index) => {
@@ -457,7 +598,7 @@
       const handleFiles = async (files) => {
         // 1. Limit Check
         if (files.length > 10) {
-          alert("单次上传限制 10 个文件，请分批上传");
+          triggerToast("单次最多上传 10 个文件，请分批上传。", "warning");
           return;
         }
 
@@ -469,9 +610,10 @@
         const queueItems = Array.from(files).map((file, i) => ({
           id: file.name + Date.now() + i,
           name: file.name,
+          file,
           status: 'waiting',
           progress: 0,
-          originalIndex: i // Track original index for cancellation map
+          originalIndex: i
         }));
 
         // Append to existing queue or reset? Usually reset for new batch.
@@ -490,7 +632,13 @@
               if (cancelledIndexesRef.current.has(index)) return;
               // Streaming Update
               setProcessingQueue(prev => prev.map((q, i) =>
-                i === index ? { ...q, status, progress, resultStatus: result?.status || q.resultStatus } : q
+                i === index ? {
+                  ...q,
+                  status,
+                  progress,
+                  resultStatus: result?.status || q.resultStatus,
+                  resultId: result?.id || q.resultId
+                } : q
               ));
 
               // Dynamic Form Filling (Stream Result Immediately)
@@ -539,14 +687,103 @@
           triggerToast('本批次暂时没有完成识别。请检查文件格式后重试；仍然失败时可逐条手动填写。', "error");
         } finally {
           setIsProcessing(false);
-          // Delay clearing queue to let user see "Completed" status briefly
-          // Unless manually cancelled
-          setTimeout(() => {
-            if (abortControllers.current.size === 0) {
-              setProcessingQueue([]);
-            }
-          }, 3000);
         }
+      };
+
+      const handleWorkspaceIdle = () => {
+        setProcessingQueue([]);
+        setIsEnhancing(false);
+      };
+
+      const handleEnhanceFailed = async () => {
+        const failedIndexes = processingQueue
+          .map((item, index) => ({ item, index }))
+          .filter(({ item }) => {
+            const pipelineStatus = item.resultStatus || item.status;
+            return pipelineStatus === 'failed' || (item.status === 'completed' && item.resultStatus === 'failed');
+          });
+
+        if (!failedIndexes.length) return;
+
+        setIsEnhancing(true);
+        abortControllers.current.clear();
+        cancelledIndexesRef.current.clear();
+
+        for (const { item, index } of failedIndexes) {
+          if (!item.file) continue;
+          if (cancelledIndexesRef.current.has(index)) continue;
+
+          const isPDF = item.file.type === 'application/pdf';
+          const controller = new AbortController();
+          abortControllers.current.set(index, controller);
+
+          setProcessingQueue(prev => prev.map((q, i) => (
+            i === index
+              ? { ...q, status: 'processing', displayStatus: 'enhancing', progress: 10, note: '正在增强识别' }
+              : q
+          )));
+
+          try {
+            const result = await window.processInvoiceFile(item.file, isPDF, reimbursementInfo, {
+              index,
+              signal: controller.signal,
+              mode: 'high_accuracy',
+              id: item.resultId
+            });
+
+            setProcessingQueue(prev => prev.map((q, i) => (
+              i === index
+                ? {
+                  ...q,
+                  status: 'completed',
+                  progress: 100,
+                  resultStatus: result.status,
+                  resultId: result.id,
+                  displayStatus: undefined,
+                  note: undefined
+                }
+                : q
+            )));
+
+            setItems(prev => {
+              const existingIndex = prev.findIndex(existing => existing.id === result.id);
+              if (existingIndex === -1) return [...prev, result];
+              return prev.map((existing, itemIndex) => (itemIndex === existingIndex ? result : existing));
+            });
+          } catch (error) {
+            if (error.name === 'AbortError') {
+              setProcessingQueue(prev => prev.map((q, i) => (
+                i === index ? { ...q, status: 'cancelled', progress: 0, displayStatus: undefined, note: undefined } : q
+              )));
+            } else {
+              const failedItem = window.createFailedItem(item.file, isPDF, error, reimbursementInfo, index, {
+                id: item.resultId
+              });
+              setProcessingQueue(prev => prev.map((q, i) => (
+                i === index
+                  ? {
+                    ...q,
+                    status: 'failed',
+                    progress: 100,
+                    resultStatus: 'failed',
+                    resultId: failedItem.id,
+                    displayStatus: undefined,
+                    note: undefined
+                  }
+                  : q
+              )));
+              setItems(prev => {
+                const existingIndex = prev.findIndex(existing => existing.id === failedItem.id);
+                if (existingIndex === -1) return [...prev, failedItem];
+                return prev.map((existing, itemIndex) => (itemIndex === existingIndex ? failedItem : existing));
+              });
+            }
+          } finally {
+            abortControllers.current.delete(index);
+          }
+        }
+
+        setIsEnhancing(false);
       };
 
       // Drag & Drop
@@ -660,7 +897,7 @@
 
       // Main App Return
       return (
-        <div className="min-h-screen bg-gradient-to-br from-[#0a0a0a] via-[#1a1a1a] to-[#0a0a0a]">
+        <div className="app-shell">
           {/* Tutorial Welcome Card */}
           <SystemModals.TutorialModal showTutorial={showTutorial} closeTutorial={closeTutorial} />
 
@@ -674,6 +911,7 @@
             autoSaveEnabled={autoSaveEnabled}
             setAutoSaveEnabled={setAutoSaveEnabled}
             saveStatus={saveStatus}
+            onOpenHistory={() => setShowHistory(true)}
           />
 
           <main className="max-w-7xl mx-auto p-6 space-y-6">
@@ -685,11 +923,14 @@
                   handleFiles={handleFiles}
                   processingQueue={processingQueue}
                   isProcessing={isProcessing}
+                  isEnhancing={isEnhancing}
                   onDragOver={onDragOver}
                   onDragLeave={onDragLeave}
                   onDrop={onDrop}
                   onCancelAll={handleCancelAll}
                   onCancelItem={handleCancelItem}
+                  onEnhanceFailed={handleEnhanceFailed}
+                  onWorkspaceIdle={handleWorkspaceIdle}
                 />
 
                 {typeof HistorySidebar !== 'undefined' && (
@@ -697,6 +938,7 @@
                     isOpen={showHistory}
                     onClose={() => setShowHistory(false)}
                     onExport={handleHistoryExport}
+                    requestConfirm={requestConfirm}
                     onRestore={(record) => {
                       const restoredItems = record.snapshot?.items || record.items || [];
                       const restoredInfo = record.snapshot?.info || {
@@ -724,9 +966,6 @@
               <ReimbursementInfo
                 reimbursementInfo={reimbursementInfo}
                 setReimbursementInfo={setReimbursementInfo}
-                handleSaveProject={handleSaveProject}
-                handleCleanProject={handleCleanProject}
-                setShowHistory={setShowHistory}
               />
             </div>
 
@@ -749,23 +988,28 @@
               initialColumns={initialColumns}
               isProcessing={isProcessing}
               reimbursementInfo={reimbursementInfo}
+              handleSaveProject={handleSaveProject}
+              handleCleanProject={handleCleanProject}
+              requestConfirm={requestConfirm}
+              notifyUser={triggerToast}
             />
 
             {/* Footer */}
-            <footer className="mt-8 pb-6 text-center text-xs text-gray-600">
+            <footer className="footer-muted mt-8 pb-6 text-center text-xs">
               <div className="flex justify-center items-center gap-4 mb-3 font-cn">
                 <button
+                  type="button"
                   onClick={() => setShowTutorial(true)}
-                  className="text-gray-500 hover:text-gray-400 transition"
+                  className="footer-link px-2 py-1"
                 >
                   查看教程
                 </button>
-                <span className="text-gray-700">|</span>
+                <span aria-hidden="true">|</span>
                 <a
                   href="https://xcn6yt0gdphe.feishu.cn/share/base/form/shrcnvbE8yRI0valNDiuKttYBxb"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-gray-500 hover:text-yellow-500 transition"
+                  className="footer-link px-2 py-1"
                 >
                   问题反馈
                 </a>
@@ -773,7 +1017,7 @@
               <div className="flex items-center justify-center gap-2 mb-1">
                 <button
                   type="button"
-                  className={`transition-colors rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400 ${versionData ? 'cursor-pointer hover:text-yellow-500' : 'cursor-default'}`}
+                  className={`version-badge ${versionData ? 'cursor-pointer' : 'cursor-default opacity-60'}`}
                   onClick={() => versionData && setShowVersionModal(true)}
                   disabled={!versionData}
                   aria-label="查看版本更新"
@@ -781,9 +1025,10 @@
                   v{versionData ? versionData.version : '...'}
                 </button>
                 <span>•</span>
-                <span>© Kairos Finance 2026</span>
+                <span>Kairos Studio©️ 2026</span>
               </div>
-              <p className="text-gray-700 mt-1">数据优先保存在当前浏览器中</p>
+              <p className="mt-1">数据仅保存在本地</p>
+              <p className="mt-1">Powered by Qwen</p>
             </footer>
           </main>
 
@@ -800,6 +1045,11 @@
             setShowCloseDialog={setShowCloseDialog}
             resetWorkspace={resetWorkspace}
           />
+          <SystemModals.ConfirmDialog
+            confirmDialog={confirmDialog}
+            onCancel={() => resolveConfirm(false)}
+            onConfirm={() => resolveConfirm(true)}
+          />
           <SystemModals.ToastNotification showToast={toastState} />
           <SystemModals.OcrConfirmationDialog
             ocrConfirmation={ocrConfirmation}
@@ -811,7 +1061,7 @@
 
           <VersionModal
             isOpen={showVersionModal}
-            onClose={() => setShowVersionModal(false)}
+            onClose={closeVersionModal}
             versionData={versionData}
           />
 
@@ -837,7 +1087,7 @@
 
           {showColumnManager && (
             <div
-              className="fixed inset-0 bg-black/80 z-[100] flex items-center justify-center p-4 animate-fade-in"
+              className="modal-overlay fixed inset-0 z-[100] flex items-center justify-center p-4 animate-fade-in"
               onClick={() => setShowColumnManager(false)}
             >
               <div
@@ -846,22 +1096,22 @@
                 aria-modal="true"
                 aria-labelledby="column-manager-title"
                 tabIndex={-1}
-                className="bg-[#1a1a1a] rounded-xl p-6 w-full max-w-md border border-[#2a2a2a] shadow-2xl overscroll-contain focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400"
+                className="modal-shell rounded-xl p-6 w-full max-w-md"
                 onClick={e => e.stopPropagation()}
               >
-                <div className="flex justify-between items-center mb-6 border-b border-[#2a2a2a] pb-4">
-                  <h3 id="column-manager-title" className="font-bold font-cn text-lg flex items-center gap-2">
-                    <Settings aria-hidden="true" size={18} className="text-yellow-500" />
+                <div className="flex justify-between items-center mb-6 border-b modal-divider pb-4">
+                  <h3 id="column-manager-title" className="modal-title font-bold font-cn text-lg flex items-center gap-2">
+                    <Settings aria-hidden="true" size={18} />
                     列显示设置
                   </h3>
                   <button type="button" onClick={() => setShowColumnManager(false)} aria-label="关闭列显示设置"
-                    className="text-gray-400 hover:text-white transition-colors bg-[#2a2a2a] hover:bg-[#333] p-1.5 rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400">
+                    className="modal-close p-1.5 rounded-full">
                     <X aria-hidden="true" size={16} />
                   </button>
                 </div>
                 <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-2 custom-scrollbar">
                   {columns.map(col => (
-                    <label key={col.id} className={`flex items-center gap-3 p-3 rounded-lg cursor-pointer border transition border-transparent hover:border-[#333] ${col.visible ? 'bg-[#252525]' : 'bg-[#151515] opacity-60 hover:opacity-100'}`}>
+                    <label key={col.id} className={`column-option flex items-center gap-3 p-3 rounded-lg cursor-pointer transition ${col.visible ? 'is-visible' : 'opacity-70 hover:opacity-100'}`}>
                       <input
                         type="checkbox"
                         name={`visible-column-${col.id}`}
@@ -874,10 +1124,10 @@
                             c.id === col.id ? { ...c, visible: !c.visible } : c
                           ));
                         }}
-                        className={`w-4 h-4 rounded border-gray-600 bg-[#333] focus:ring-yellow-500 focus:ring-offset-[#1a1a1a] ${col.fixed ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+                        className={`w-4 h-4 rounded ${col.fixed ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
                       />
-                      <span className={`text-sm ${col.visible ? 'text-gray-200 font-medium' : 'text-gray-500'}`}>{col.label}</span>
-                      {col.fixed && <span className="text-xs text-yellow-500/50 ml-auto bg-yellow-500/10 px-2 py-0.5 rounded">必选</span>}
+                      <span className={`text-sm ${col.visible ? 'font-medium' : ''}`}>{col.label}</span>
+                      {col.fixed && <span className="fixed-column-badge text-xs ml-auto px-2 py-0.5 rounded">必选</span>}
                     </label>
                   ))}
                 </div>
@@ -892,6 +1142,7 @@
             onClose={() => setPdfPreviewUrl(null)}
             items={items}
             updateItem={updateItem}
+            requestConfirm={requestConfirm}
           />
 
         </div>

@@ -1,27 +1,79 @@
-window.AppHeader = ({ autoSaveEnabled, setAutoSaveEnabled, saveStatus }) => {
+const THEME_OPTIONS = [
+    { value: 'system', label: '跟随系统' },
+    { value: 'light', label: '浅色' },
+    { value: 'dark', label: '深色' }
+];
+
+window.AppHeader = ({ autoSaveEnabled, setAutoSaveEnabled, saveStatus, onOpenHistory }) => {
+    const { Clock } = window;
+    const [themePreference, setThemePreference] = React.useState(() => {
+        return window.KairosTheme?.getPreference?.() || 'system';
+    });
+
+    React.useEffect(() => {
+        if (!window.KairosTheme?.subscribe) return undefined;
+        return window.KairosTheme.subscribe(({ preference }) => {
+            setThemePreference(preference);
+        });
+    }, []);
+
+    const handleThemeChange = (preference) => {
+        const nextTheme = window.KairosTheme?.setPreference?.(preference);
+        setThemePreference(nextTheme?.preference || preference);
+    };
+
     return (
-        <header className="border-b border-[#2a2a2a] px-8 py-6">
-            <div className="flex items-center justify-between">
-                <img src="assets/Kairos Finance.svg" alt="Kairos Finance" width={180} height={40} className="h-10 w-auto opacity-90 hover:opacity-100 transition-opacity" />
-                <div className="flex items-center gap-6">
+        <header className="app-header px-4 py-4 sm:px-8">
+            <div className="mx-auto flex max-w-7xl flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                <a href="#root" className="app-header__brand rounded-lg focus-visible:outline-none" aria-label="Kairos Finance 首页">
+                    <img src="assets/Kairos Finance Black.svg" alt="Kairos Finance" width={180} height={40} className="app-logo app-logo--light" />
+                    <img src="assets/Kairos Finance.svg" alt="" aria-hidden="true" width={180} height={40} className="app-logo app-logo--dark" />
+                </a>
+                <div className="flex flex-wrap items-center gap-3 sm:justify-end">
+                    <div className="theme-toggle" role="group" aria-label="切换界面主题">
+                        {THEME_OPTIONS.map(option => (
+                            <button
+                                key={option.value}
+                                type="button"
+                                aria-pressed={themePreference === option.value}
+                                onClick={() => handleThemeChange(option.value)}
+                                className={`theme-toggle__button ${themePreference === option.value ? 'is-active' : ''}`}
+                            >
+                                {option.label}
+                            </button>
+                        ))}
+                    </div>
+
+                    {onOpenHistory && (
+                        <button
+                            type="button"
+                            onClick={onOpenHistory}
+                            className="app-header__history-button font-cn"
+                            aria-label="打开历史记录"
+                        >
+                            <Clock aria-hidden="true" size={14} />
+                            <span>历史记录</span>
+                        </button>
+                    )}
+
                     <button
                         type="button"
                         role="switch"
                         aria-checked={autoSaveEnabled}
                         onClick={() => setAutoSaveEnabled(enabled => !enabled)}
-                        className="flex items-center gap-2 group rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400 focus-visible:ring-offset-2 focus-visible:ring-offset-black"
+                        className="autosave-toggle"
                     >
-                        <span aria-hidden="true" className={`w-8 h-4 rounded-full p-0.5 transition-colors duration-300 ${autoSaveEnabled ? 'bg-yellow-400' : 'bg-gray-700'}`}>
-                            <span className={`block w-3 h-3 bg-black rounded-full shadow-sm transform transition-transform duration-300 ${autoSaveEnabled ? 'translate-x-4' : 'translate-x-0'}`} />
+                        <span aria-hidden="true" className={`autosave-toggle__track ${autoSaveEnabled ? 'is-on' : ''}`}>
+                            <span className={`autosave-toggle__thumb ${autoSaveEnabled ? 'is-on' : ''}`} />
                         </span>
-                        <span className="text-[11px] text-gray-500 group-hover:text-gray-300 transition-colors font-cn">
+                        <span className="autosave-toggle__label font-cn">
                             {autoSaveEnabled ? '自动保存已开启' : '自动保存已关闭'}
                         </span>
                     </button>
 
-                    <div className="flex items-center gap-2 pl-4 border-l border-gray-800" aria-live="polite" aria-atomic="true">
-                        <span aria-hidden="true" className={`w-2 h-2 rounded-full transition-[background-color,box-shadow] duration-500 ${saveStatus === 'saving' ? 'bg-yellow-500 shadow-[0_0_8px_rgba(234,179,8,0.6)] motion-pulse' : 'bg-transparent border border-gray-600'}`} />
-                        <span className={`text-[11px] font-cn ${saveStatus === 'saving' ? 'text-yellow-500' : 'text-gray-500'}`}>
+                    <div className={`save-status ${saveStatus === 'saving' ? 'is-saving' : 'is-saved'}`} aria-live="polite" aria-atomic="true">
+                        <span aria-hidden="true" className="save-status__dot" />
+                        <span className="save-status__label font-cn">
                             {saveStatus === 'saving' ? '正在保存…' : '已保存'}
                         </span>
                     </div>

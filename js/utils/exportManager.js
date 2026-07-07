@@ -12,9 +12,19 @@
  * @param {Object} reimbursementInfo
  * @param {Function} onProgress - Callback for progress updates ({ processed, total, message })
  */
+function notifyExportIssue(message, variant = 'warning') {
+    if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function' && typeof CustomEvent !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('kairos-notify', {
+            detail: { message, variant }
+        }));
+        return;
+    }
+    console.warn(message);
+}
+
 async function exportToExcel(items, columns, reimbursementInfo, onProgress = () => { }) {
     if (typeof ExcelJS === 'undefined') {
-        alert('暂时无法生成 Excel。请刷新页面后重试；仍然失败时请联系维护人员。');
+        notifyExportIssue('暂时无法生成 Excel。请刷新页面后重试；仍然失败时请联系维护人员。', 'error');
         return;
     }
 
@@ -278,7 +288,7 @@ async function exportToPrint(items, columns, reimbursementInfo) {
     // 1. Open Window Immediately (Bypass Popup Blocker)
     const printWin = window.open('', '_blank');
     if (!printWin) {
-        alert('浏览器没有打开打印页面。请允许当前页面打开新窗口，然后再次点击打印。');
+        notifyExportIssue('浏览器没有打开打印页面。请允许当前页面打开新窗口，然后再次点击打印。', 'warning');
         return;
     }
 
@@ -361,7 +371,7 @@ async function exportToPrint(items, columns, reimbursementInfo) {
     } catch (e) {
         // Handle Error
         printWin.close();
-        alert('暂时无法准备打印内容。请刷新页面后重试；仍然失败时请重新选择发票。');
+        notifyExportIssue('暂时无法准备打印内容。请刷新页面后重试；仍然失败时请重新选择发票。', 'error');
         console.error(e);
     }
 }
