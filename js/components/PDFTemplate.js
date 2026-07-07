@@ -9,9 +9,9 @@ window.PDFTemplate = ({ items, reimbursementInfo, columns }) => {
     return (
         <div id="pdf-preview-content" className="p-4 bg-white text-black w-[275mm] min-h-[210mm] mx-auto text-[9px] relative">
             <div className="flex items-center justify-between mb-3">
-                <img src="assets/logo_text.png" alt="Kairos Studio Logo" className="h-8" />
+                <img src="assets/Kairos Logo Black.svg" alt="Kairos Logo" className="h-8 w-auto" />
                 <h1 className="text-lg font-bold flex-1 text-center">报销单</h1>
-                <img src="assets/logo_graph.png" alt="Kairos Graph Logo" className="h-8" />
+                <img src="assets/logo_graph.png" alt="Kairos Bird Logo" className="h-8 w-auto" />
             </div>
 
             <div className="mb-2 grid grid-cols-3 gap-2 text-[10px]">

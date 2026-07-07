@@ -37,11 +37,28 @@ HOST=127.0.0.1
 PORT=3000
 OCR_ACCESS_TOKEN=<在服务器上生成的长随机值>
 QWEN_API_KEY=<DashScope API Key>
-QWEN_ENDPOINT=https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions
+QWEN_ENDPOINT=https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation
+QWEN_WORKSPACE_ID=<可选：百炼业务空间 ID>
+QWEN_WORKSPACE_NAME=<可选：百炼业务空间名称>
+QWEN_API_MODE=dashscope-native
 QWEN_PRIMARY_MODEL=qwen3-vl-flash
 QWEN_FALLBACK_MODEL=qwen3.7-plus
 QWEN_HIGH_ACCURACY_MODEL=qwen3-vl-plus
 QWEN_ENABLE_THINKING=false
+```
+
+当前服务端代码使用 DashScope 原生 `multimodal-generation/generation` 协议，发出的请求体为 `input.messages`。不要把 `QWEN_ENDPOINT` 配成 OpenAI 兼容模式的 `/compatible-mode/v1/chat/completions`，除非同时修改 `api/qwen-client.js` 的请求体结构。
+
+如果百炼控制台创建 API Key 时提供的是工作空间专属 API Host，请使用同一地域、同一工作空间的原生视觉理解地址，例如：
+
+```bash
+QWEN_ENDPOINT=https://<WorkspaceId>.<region>.maas.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation
+```
+
+配置后可运行安全探针。探针只输出 API Key 是否存在、endpoint 类型、workspaceId、模型名和 API 模式，不输出 API Key 内容：
+
+```bash
+npm run check:qwen-config
 ```
 
 Docker Compose 中容器内使用 `HOST=0.0.0.0`，但端口只绑定到宿主机 `127.0.0.1:3000`，仍不对公网开放 Node。
@@ -53,13 +70,13 @@ Docker Compose 中容器内使用 `HOST=0.0.0.0`，但端口只绑定到宿主�
 1. 创建整站访问控制文件：
 
    ```bash
-   sudo htpasswd -c /etc/nginx/secrets/yellow-bird-finance.htpasswd <username>
+   sudo htpasswd -c /etc/nginx/secrets/kairos-finance.htpasswd <username>
    ```
 
 2. 创建 OCR 外置内部鉴权片段：
 
    ```bash
-   sudo install -m 0600 -o root -g root /dev/null /etc/nginx/snippets/yellow-bird-finance-ocr-auth.conf
+   sudo install -m 0600 -o root -g root /dev/null /etc/nginx/snippets/kairos-finance-ocr-auth.conf
    ```
 
 3. 只在服务器上写入以下内容，并把值替换为与 Node `.env.production` 完全一致的真实值：
@@ -70,7 +87,7 @@ Docker Compose 中容器内使用 `HOST=0.0.0.0`，但端口只绑定到宿主�
 
 4. 不要把替换后的 snippet 复制回仓库。
 
-`deploy/nginx-yellow-bird-finance.conf` 中 `/api/ocr` 会覆盖浏览器传来的 `Authorization`，并设置 `X-OCR-Token-Source: nginx`。日志只记录 tokenSource 和鉴权结果，不记录 Token 内容。
+`deploy/nginx-kairos-finance.conf` 中 `/api/ocr` 会覆盖浏览器传来的 `Authorization`，并设置 `X-OCR-Token-Source: nginx`。日志只记录 tokenSource 和鉴权结果，不记录 Token 内容。
 
 正式环境下浏览器不应看到、下载或输入 `OCR_ACCESS_TOKEN`。若需要在本地开发或没有 Nginx 反代的兼容环境中临时输入访问凭证，前端只会保存到 `sessionStorage`；关闭页面或浏览器后失效，不会写入 `localStorage`、IndexedDB 或仓库文件。
 
@@ -104,7 +121,7 @@ curl http://127.0.0.1:3000/api/health
 
 ## Nginx 启用
 
-1. 将 `deploy/nginx-yellow-bird-finance.conf` 复制到 Nginx `http` 配置范围，例如 `/etc/nginx/conf.d/kairos-finance.conf`。
+1. 将 `deploy/nginx-kairos-finance.conf` 复制到 Nginx `http` 配置范围，例如 `/etc/nginx/conf.d/kairos-finance.conf`。
 2. 替换 `server_name` 和证书路径。
 3. 确认证书已可用，80 端口只跳转 HTTPS。
 4. 检查配置：

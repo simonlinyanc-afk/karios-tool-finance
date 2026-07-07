@@ -9,6 +9,19 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
 let imageWorker = null;
 const pendingRequests = new Map();
+const DATA_URL_SIZE_THRESHOLD = 1_200_000;
+
+function getImageProcessingProfile(isPDF = false) {
+    return {
+        maxDim: isPDF ? 1440 : 1280,
+        quality: 0.65,
+        secondPass: {
+            maxDim: 1080,
+            quality: 0.55
+        },
+        dataUrlThreshold: DATA_URL_SIZE_THRESHOLD
+    };
+}
 
 function initWorker() {
     if (imageWorker) return;
@@ -147,13 +160,14 @@ async function convertPDFToImage(file) {
     }
 
     try {
+        const profile = getImageProcessingProfile(true);
         const arrayBuffer = await file.arrayBuffer();
         const pdf = await pdfjsLib.getDocument({ data: arrayBuffer, cMapUrl: 'libs/cmaps/', cMapPacked: true }).promise;
         const page = await pdf.getPage(1);
         const viewportRaw = page.getViewport({ scale: 1 });
 
-        // Target 1800px
-        const maxDim = 1800;
+        // Render PDFs slightly larger to preserve text legibility before JPEG compression.
+        const maxDim = profile.maxDim;
         const scale = Math.min(maxDim / viewportRaw.width, maxDim / viewportRaw.height);
         const viewport = page.getViewport({ scale });
 
@@ -163,7 +177,7 @@ async function convertPDFToImage(file) {
 
         await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
 
-        const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
+        const dataUrl = canvas.toDataURL('image/jpeg', profile.quality);
 
         // Wrap as File
         const res = await fetch(dataUrl);
@@ -194,11 +208,12 @@ async function blobToBase64(url) {
 /**
  * Unified Process Function
  */
-async function processImage(file) {
+async function processImage(file, options = {}) {
     await sleep(50); // Minimal yield
 
     const fileHash = await calculateFileHash(file);
     const id = Date.now() + Math.random();
+    const profile = getImageProcessingProfile(Boolean(options.isPDF));
 
     console.log(`[ImageProcessor] Processing ${file.name} (Worker Mode)`);
 
@@ -208,7 +223,11 @@ async function processImage(file) {
         compressedBase64 = file._precomputedBase64;
     } else {
         // Send to Worker
-        compressedBase64 = await resizeCanvas(file, 1500, 0.7);
+        compressedBase64 = await resizeCanvas(file, profile.maxDim, profile.quality);
+    }
+
+    if (compressedBase64 && compressedBase64.length > profile.dataUrlThreshold) {
+        compressedBase64 = await resizeCanvas(file, profile.secondPass.maxDim, profile.secondPass.quality);
     }
 
     return {
@@ -226,5 +245,6 @@ window.resizeCanvas = resizeCanvas;
 window.processImage = processImage;
 window.convertPDFToImage = convertPDFToImage;
 window.blobToBase64 = blobToBase64;
+window.getImageProcessingProfile = getImageProcessingProfile;
 // aliases
-window.resizeImage = (url, q) => resizeCanvas(url, 1500, q);
+window.resizeImage = (url, q) => resizeCanvas(url, getImageProcessingProfile(false).maxDim, q);

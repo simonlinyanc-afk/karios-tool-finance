@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "node server.js",
     "start": "node server.js",
+    "check:qwen-config": "node scripts/check-qwen-config.mjs",
     "test": "node --test tests/*.test.js"
   },
   "engines": {

@@ -21,14 +21,14 @@ test('production environment example binds locally and contains only a credentia
 
 test('Nginx example protects the site and injects auth from an external secret snippet', async () => {
   const [source, deployment] = await Promise.all([
-    read('deploy/nginx-yellow-bird-finance.conf'),
+    read('deploy/nginx-kairos-finance.conf'),
     read('docs/deployment-self-hosted.md')
   ]);
   assert.match(source, /listen 443 ssl/u);
   assert.match(source, /auth_basic\s+"[^"]+"/u);
   assert.match(source, /client_max_body_size 15m/u);
   assert.match(source, /location = \/api\/ocr/u);
-  assert.match(source, /include \/etc\/nginx\/snippets\/yellow-bird-finance-ocr-auth\.conf/u);
+  assert.match(source, /include \/etc\/nginx\/snippets\/kairos-finance-ocr-auth\.conf/u);
   assert.match(source, /proxy_set_header X-OCR-Token-Source "nginx"/u);
   assert.match(source, /proxy_read_timeout 150s/u);
   assert.match(source, /limit_req/u);

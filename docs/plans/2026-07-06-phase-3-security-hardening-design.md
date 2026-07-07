@@ -81,7 +81,7 @@
 ## 6. 部署资产
 
 - `.env.production.example` 增加 `OCR_ACCESS_TOKEN`，并将直接主机部署默认监听改为回环地址。
-- `deploy/nginx-yellow-bird-finance.conf` 保护整站，并通过仓库外 secret snippet 注入内部凭证。配置文件不包含真实凭证。
+- `deploy/nginx-kairos-finance.conf` 保护整站，并通过仓库外 secret snippet 注入内部凭证。配置文件不包含真实凭证。
 - `docs/deployment-self-hosted.md` 本阶段写入网络边界、secret provision 和鉴权验证；Phase 6 再补 Docker Compose、证书、健康检查、回滚和完整日志运维。
 - `docs/security.md` 成为鉴权、输入限制、日志脱敏和本地会话凭证的事实源。
 - `docs/open-questions.md` 将 Q-001 标记为已解决并记录本设计。
@@ -108,7 +108,7 @@
 - `api/logger.js`
 - `docs/security.md`
 - `docs/deployment-self-hosted.md`
-- `deploy/nginx-yellow-bird-finance.conf`
+- `deploy/nginx-kairos-finance.conf`
 - `tests/security.test.js`
 - `tests/logger.test.js`
 - `tests/phase3-api-security.test.js`

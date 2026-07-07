@@ -1,5 +1,5 @@
 /**
- * Export Manager for Yellow Bird Finance
+ * Export Manager for Kairos Finance
  * Handles Excel and Print/PDF export functionality
  * Depends on: ExcelJS, finance.js (for resizeImage)
  */

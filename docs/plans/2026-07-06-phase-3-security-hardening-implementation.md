@@ -161,7 +161,7 @@ Expected: PASS。
 **Files:**
 - Create: `docs/security.md`
 - Create: `docs/deployment-self-hosted.md`
-- Create: `deploy/nginx-yellow-bird-finance.conf`
+- Create: `deploy/nginx-kairos-finance.conf`
 - Modify: `.env.production.example`
 - Modify: `docs/open-questions.md`
 

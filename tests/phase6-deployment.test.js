@@ -77,7 +77,7 @@ test('Docker and Nginx deployment examples preserve the approved self-hosted bou
     fs.readFile('Dockerfile', 'utf8'),
     fs.readFile('.dockerignore', 'utf8'),
     fs.readFile('docker-compose.yml', 'utf8'),
-    fs.readFile('deploy/nginx-yellow-bird-finance.conf', 'utf8'),
+    fs.readFile('deploy/nginx-kairos-finance.conf', 'utf8'),
     fs.readFile('docs/deployment-self-hosted.md', 'utf8'),
     fs.readFile('package.json', 'utf8'),
     fs.readFile('docs/build-system.md', 'utf8')
@@ -99,7 +99,7 @@ test('Docker and Nginx deployment examples preserve the approved self-hosted bou
   assert.match(nginx, /client_max_body_size 15m/u);
   assert.match(nginx, /limit_req_zone/u);
   assert.match(nginx, /proxy_read_timeout 150s/u);
-  assert.match(nginx, /yellow-bird-finance-ocr-auth\.conf/u);
+  assert.match(nginx, /kairos-finance-ocr-auth\.conf/u);
   assert.match(nginx, /location = \/api\/health/u);
   assert.doesNotMatch(nginx, /Bearer\s+sk-|OCR_ACCESS_TOKEN=.*[A-Za-z0-9]/u);
 
