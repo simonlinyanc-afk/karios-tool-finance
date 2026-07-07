@@ -20,17 +20,20 @@ const extractZIndex = (source, pattern, label) => {
 };
 
 test('modal overlays stay above the sticky reimbursement table header', async () => {
-  const [tableSource, systemModalsSource, exportPreviewSource, indexSource] = await Promise.all([
+  const [cssSource, tableSource, systemModalsSource, exportPreviewSource, indexSource] = await Promise.all([
+    readProjectFile('css/style.css'),
     readProjectFile('js/components/ReimbursementTable.js'),
     readProjectFile('js/components/SystemModals.js'),
     readProjectFile('js/components/ExportPreviewModal.js'),
     readProjectFile('index.html')
   ]);
 
+  /* Header z-index is defined via CSS token --z-table-header.
+     The JSX no longer carries inline Tailwind z-index on <th>. */
   const stickyHeaderZIndex = extractZIndex(
-    tableSource,
-    /sticky top-0[^"]* z-(?:\[(\d+)\]|(\d+))/,
-    'sticky table header z-index'
+    cssSource,
+    /--z-table-header:\s*(\d+)/,
+    'sticky table header z-index token'
   );
 
   const overlayZIndexes = [

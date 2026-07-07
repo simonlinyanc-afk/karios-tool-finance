@@ -233,7 +233,7 @@ window.ReimbursementTable = ({
                                     return (
                                         <th
                                             key={col.id}
-                                            className="invoice-table-header font-cn whitespace-nowrap sticky top-0 z-10 px-4 py-3"
+                                            className="invoice-table-header font-cn whitespace-nowrap px-4 py-3"
                                             aria-sort={isSortable ? ariaSort : undefined}
                                         >
                                             {isSortable ? (
@@ -303,7 +303,7 @@ window.ReimbursementTable = ({
                                                                         />
                                                                     </label>
                                                                 ) : (
-                                                                    <div className="relative group w-12 h-12">
+                                                                    <div className="attachment-thumb-wrapper relative group w-12 h-12">
                                                                         <button
                                                                             type="button"
                                                                             className="w-12 h-12 rounded"
@@ -368,7 +368,7 @@ window.ReimbursementTable = ({
                                                             }} />
                                                         </label>
                                                     ) : (
-                                                        <div className="relative group w-12 h-12">
+                                                        <div className="attachment-thumb-wrapper relative group w-12 h-12">
                                                             <button type="button" className="w-12 h-12 rounded"
                                                                 onClick={() => setPdfPreviewUrl(item.orderImage)} aria-label={`预览第 ${rowIndex + 1} 行订单图`}>
                                                                 <img src={item.orderImage} width={48} height={48}
@@ -419,7 +419,7 @@ window.ReimbursementTable = ({
                                                             }} />
                                                         </label>
                                                     ) : (
-                                                        <div className="relative group w-12 h-12">
+                                                        <div className="attachment-thumb-wrapper relative group w-12 h-12">
                                                             <button type="button" className="w-12 h-12 rounded"
                                                                 onClick={() => setPdfPreviewUrl(item.paymentProof)} aria-label={`预览第 ${rowIndex + 1} 行支付凭证`}>
                                                                 <img src={item.paymentProof} width={48} height={48}
@@ -493,14 +493,14 @@ window.ReimbursementTable = ({
                                                         } else {
                                                             return (
                                                                 <div className="flex items-center gap-4">
-                                                                    <div className="relative group w-12 h-12 shrink-0">
+                                                                    <div className="attachment-thumb-wrapper relative group w-12 h-12 shrink-0">
                                                                         {/* Stack Effect */}
                                                                         {proofs.length > 1 && (
-                                                                            <div className="invoice-thumbnail-stack absolute top-1 -right-1 w-12 h-12 rounded z-0 rotate-6 transform"></div>
+                                                                            <div className="invoice-thumbnail-stack absolute top-1 -right-1 w-12 h-12 rounded rotate-6 transform"></div>
                                                                         )}
                                                                         {/* Main Image */}
                                                                         <button type="button" onClick={() => setPdfPreviewUrl(proofs[0])}
-                                                                            className="relative z-10 w-12 h-12 rounded"
+                                                                            className="relative w-12 h-12 rounded"
                                                                             aria-label={`预览第 ${rowIndex + 1} 行其他附件`}>
                                                                             <img src={proofs[0]} width={48} height={48}
                                                                                 className="invoice-thumbnail w-12 h-12 object-cover rounded"
@@ -509,7 +509,7 @@ window.ReimbursementTable = ({
 
                                                                         {/* Count Badge */}
                                                                         {proofs.length > 1 && (
-                                                                            <div className="attachment-count-badge absolute -bottom-1 -right-1 z-20 text-[10px] font-bold px-1 rounded-sm shadow-sm">
+                                                                            <div className="attachment-count-badge absolute -bottom-1 -right-1 text-[10px] font-bold px-1 rounded-sm shadow-sm">
                                                                                 {proofs.length}
                                                                             </div>
                                                                         )}
@@ -517,7 +517,7 @@ window.ReimbursementTable = ({
                                                                         {/* Clear Button */}
                                                                         <button type="button" onClick={(e) => { e.stopPropagation(); updateItem(item.id, 'attachments', null); }}
                                                                             className="modal-close absolute -top-2 -left-2 rounded-full p-0.5 opacity-0
-                                  group-hover:opacity-100 focus:opacity-100 transition-opacity z-30"
+                                  group-hover:opacity-100 focus:opacity-100 transition-opacity"
                                                                             aria-label={`清空第 ${rowIndex + 1} 行其他附件`}
                                                                         >
                                                                             <X aria-hidden="true" size={10} />
